@@ -55,8 +55,7 @@ void platform_event_queue_enqueue(platform_event_queue queue, platform_sqe* sqe,
     sqe->type = type;
     PostQueuedCompletionStatus(queue, status, (ULONG_PTR)user_data, (OVERLAPPED*)sqe);
 }
-uint32_t platform_event_queue_dequeue(platform_event_queue queue, platform_cqe* events, uint32_t count, uint32_t wait_time)
-{
+uint32_t platform_event_queue_dequeue(platform_event_queue queue, platform_cqe* events, uint32_t count, uint32_t wait_time) {
     uint32_t out_count;
     GetQueuedCompletionStatusEx(queue, events, count, &out_count, wait_time, FALSE); // TODO - How to handle errors?
     return out_count;
@@ -103,8 +102,7 @@ void platform_event_queue_enqueue(platform_event_queue queue, platform_sqe* sqe,
     io_uring_sqe_set_data(io_sqe, sqe);
     io_uring_submit(queue); // TODO - Extract to separate function?
 }
-uint32_t platform_event_queue_dequeue(platform_event_queue queue, platform_cqe* events, uint32_t count, uint32_t wait_time)
-{
+uint32_t platform_event_queue_dequeue(platform_event_queue queue, platform_cqe* events, uint32_t count, uint32_t wait_time) {
     io_uring_wait_cqe(queue, events); // TODO - multiple return and wait_time
     return 1;
 }
@@ -142,7 +140,7 @@ void platform_event_queue_cleanup(platform_event_queue queue) {
 bool platform_sqe_initialize(platform_event_queue queue, platform_sqe* sqe) {
     sqe->fd = eventfd(0, EFD_CLOEXEC);
     if (sqe->fd == -1) return false;
-    struct epoll_event event = { .events = EPOLLIN, .data = { .ptr = NULL } };
+    struct epoll_event event = { .events = EPOLLIN | EPOLLET, .data = { .ptr = sqe } };
     if (epoll_ctl(queue, EPOLL_CTL_ADD, sqe->fd, &event) != 0) {
         close(sqe->fd);
         return false;
@@ -154,17 +152,16 @@ void platform_sqe_cleanup(platform_event_queue queue, platform_sqe* sqe) {
     close(sqe->fd);
 }
 void platform_event_queue_enqueue(platform_event_queue queue, platform_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
-    const eventfd_t value = 1;
     sqe->type = type;
     sqe->user_data = user_data;
     sqe->status = status;
-    eventfd_write(sqe->fd, value); // TODO - replace value with status?
+    eventfd_write(sqe->fd, 1);
 }
-uint32_t platform_event_queue_dequeue(platform_event_queue queue, platform_cqe* events, uint32_t count, uint32_t wait_time)
-{
+uint32_t platform_event_queue_dequeue(platform_event_queue queue, platform_cqe* events, uint32_t count, uint32_t wait_time) {
+    const int timeout = wait_time == UINT32_MAX ? -1 : (int)wait_time;
     int result;
     do {
-        result = epoll_wait(queue, events, count, wait_time == UINT32_MAX ? -1 : (int)wait_time);
+        result = epoll_wait(queue, events, count, timeout);
     } while ((result == -1L) && (errno == EINTR));
     return (uint32_t)result;
 }
@@ -214,8 +211,7 @@ void platform_event_queue_enqueue(platform_event_queue queue, platform_sqe* sqe,
 }
 #define CXPLAT_NANOSEC_PER_MS       (1000000)
 #define CXPLAT_MS_PER_SECOND        (1000)
-uint32_t platform_event_queue_dequeue(platform_event_queue queue, platform_cqe* events, uint32_t count, uint32_t wait_time)
-{
+uint32_t platform_event_queue_dequeue(platform_event_queue queue, platform_cqe* events, uint32_t count, uint32_t wait_time) {
     struct timespec timeout = {0, 0};
     if (wait_time != UINT32_MAX) {
         timeout.tv_sec += (wait_time / CXPLAT_MS_PER_SECOND);
@@ -301,9 +297,9 @@ void process_app_event(platform_cqe* cqe) {
 }
 
 PLATFORM_THREAD(main_loop, context) {
-    printf("Main loop\n");
+    printf("Main loop start\n");
+    platform_cqe events[8];
     while (running) {
-        platform_cqe events[8];
         uint32_t wait_time = platform_get_wait_time();
         uint32_t count = wait_time == 0 ? 0 : platform_event_queue_dequeue(queue, events, 8, wait_time);
         if (count == 0) {
@@ -318,6 +314,7 @@ PLATFORM_THREAD(main_loop, context) {
             }
         }
     }
+    printf("Main loop end\n");
     PLATFORM_THREAD_RETURN(0);
 }
 
@@ -357,9 +354,14 @@ int CALL main(int argc, char **argv) {
     start_main_loop();
 
     platform_sleep(1000);
+    printf("Sending echo event\n");
     platform_event_queue_enqueue(queue, &echo_sqe, APP_EVENT_TYPE_ECHO, NULL, 0);
+    printf("Sending timer event\n");
     platform_event_queue_enqueue(queue, &timer_sqe, APP_EVENT_TYPE_START_TIMER, NULL, 100);
+
     platform_sleep(1000);
+    printf("Sending echo event\n");
+    platform_event_queue_enqueue(queue, &echo_sqe, APP_EVENT_TYPE_ECHO, NULL, 0);
 
     stop_main_loop();
     return 0;
