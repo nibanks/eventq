@@ -1,0 +1,35 @@
+name: Build
+
+on:
+  push:
+    branches: main
+  pull_request:
+    branches: main
+
+permissions: read-all
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu, windows]
+    permissions:
+      contents: read
+    name: Build
+    runs-on: ${{ matrix.os }}-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@629c2de402a417ea7690ca6ce3f33229e27606a5
+    - name: Build (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        mkdir build && cd build
+        cmake -G 'Unix Makefiles' ..
+        cmake --build .
+    - name: Build (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        mkdir build && cd build
+        cmake -G 'Visual Studio 17 2022' -A x64 ..
+        cmake --build .
