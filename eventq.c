@@ -46,13 +46,9 @@ void platform_event_queue_cleanup(platform_event_queue queue) {
     CloseHandle(queue);
 }
 bool platform_sqe_initialize(platform_event_queue queue, platform_sqe* sqe) {
-    UNREFERENCED_PARAMETER(queue);
-    UNREFERENCED_PARAMETER(sqe);
     return true;
 }
 void platform_sqe_cleanup(platform_event_queue queue, platform_sqe* sqe) {
-    UNREFERENCED_PARAMETER(queue);
-    UNREFERENCED_PARAMETER(sqe);
 }
 void platform_event_queue_enqueue(platform_event_queue queue, platform_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
     memset(sqe, 0, sizeof(*sqe));
@@ -93,12 +89,8 @@ void platform_event_queue_cleanup(platform_event_queue queue) {
     // TODO - How to cleanup?
 }
 bool platform_sqe_initialize(platform_event_queue queue, platform_sqe* sqe) {
-    UNREFERENCED_PARAMETER(queue);
-    UNREFERENCED_PARAMETER(sqe);
 }
 void platform_sqe_cleanup(platform_event_queue queue, platform_sqe* sqe) {
-    UNREFERENCED_PARAMETER(queue);
-    UNREFERENCED_PARAMETER(sqe);
 }
 void platform_event_queue_enqueue(platform_event_queue queue, platform_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
     sqe->type = type;
@@ -135,7 +127,7 @@ typedef struct platform_sqe {
     void* user_data;
     uint32_t status;
 } platform_sqe;
-typedef epoll_event platform_cqe;
+typedef struct epoll_event platform_cqe;
 
 bool platform_event_queue_initialize(platform_event_queue* queue) {
     *queue = epoll_create1(EPOLL_CLOEXEC);
@@ -205,13 +197,9 @@ void platform_event_queue_cleanup(platform_event_queue queue) {
     close(queue);
 }
 bool platform_sqe_initialize(platform_event_queue queue, platform_sqe* sqe) {
-    UNREFERENCED_PARAMETER(queue);
-    UNREFERENCED_PARAMETER(sqe);
     return true;
 }
 void platform_sqe_cleanup(platform_event_queue queue, platform_sqe* sqe) {
-    UNREFERENCED_PARAMETER(queue);
-    UNREFERENCED_PARAMETER(sqe);
 }
 void platform_event_queue_enqueue(platform_event_queue queue, platform_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
     struct kevent event = {0};
@@ -264,6 +252,13 @@ uint32_t platform_wait_time = UINT32_MAX;
 uint32_t platform_get_wait_time(void) { return platform_wait_time; }
 void platform_process_timeout(void) { printf("Timeout\n"); platform_wait_time = UINT32_MAX; }
 void platform_process_event(platform_cqe* cqe) { printf("Event %u\n", platform_cqe_get_type(cqe)); }
+void platform_sleep(uint32_t milliseconds) {
+#ifdef _WIN32
+    Sleep(milliseconds);
+#else
+    usleep(milliseconds * 1000);
+#endif
+}
 
 //
 // Custom app specific functions and state.
@@ -303,7 +298,6 @@ void process_app_event(platform_cqe* cqe) {
 }
 
 PLATFORM_THREAD(main_loop, context) {
-    UNREFERENCED_PARAMETER(context);
     printf("Main loop\n");
     while (running) {
         platform_cqe events[8];
@@ -356,21 +350,13 @@ void stop_main_loop() {
 #endif
 }
 
-void sleep(uint32_t milliseconds) {
-#ifdef _WIN32
-    Sleep(milliseconds);
-#else
-    usleep(milliseconds * 1000);
-#endif
-}
-
 int CALL main(int argc, char **argv) {
     start_main_loop();
 
-    sleep(1000);
+    platform_sleep(1000);
     platform_event_queue_enqueue(queue, &echo_sqe, APP_EVENT_TYPE_ECHO, NULL, 0);
     platform_event_queue_enqueue(queue, &timer_sqe, APP_EVENT_TYPE_START_TIMER, NULL, 100);
-    sleep(1000);
+    platform_sleep(1000);
 
     stop_main_loop();
     return 0;
