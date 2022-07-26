@@ -143,7 +143,7 @@ bool platform_sqe_initialize(platform_event_queue queue, platform_sqe* sqe) {
     sqe->fd = eventfd(0, EFD_CLOEXEC);
     if (sqe->fd == -1) return false;
     struct epoll_event event = { .events = EPOLLIN, .data = { .ptr = NULL } };
-    if (epoll_ctl(queue, EPOLL_CTL_ADD, sqe->fd, &event) == 0) {
+    if (epoll_ctl(queue, EPOLL_CTL_ADD, sqe->fd, &event) != 0) {
         close(sqe->fd);
         return false;
     }
@@ -318,10 +318,6 @@ PLATFORM_THREAD(main_loop, context) {
             }
         }
     }
-    platform_sqe_cleanup(queue, &shutdown_sqe);
-    platform_sqe_cleanup(queue, &echo_sqe);
-    platform_sqe_cleanup(queue, &timer_sqe);
-    platform_event_queue_cleanup(queue);
     PLATFORM_THREAD_RETURN(0);
 }
 
@@ -351,6 +347,10 @@ void stop_main_loop() {
     pthread_equal(thread, pthread_self());
     pthread_join(thread, NULL);
 #endif
+    platform_sqe_cleanup(queue, &shutdown_sqe);
+    platform_sqe_cleanup(queue, &echo_sqe);
+    platform_sqe_cleanup(queue, &timer_sqe);
+    platform_event_queue_cleanup(queue);
 }
 
 int CALL main(int argc, char **argv) {
