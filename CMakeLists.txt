@@ -25,3 +25,5 @@ target_compile_definitions(eventq PRIVATE ${COMMON_DEFINES})
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 target_link_libraries(eventq PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
+
+install(TARGETS eventq EXPORT eventq DESTINATION lib)
