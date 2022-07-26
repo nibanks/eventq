@@ -18,6 +18,7 @@ typedef HANDLE platform_thread;
 #else
 #include <pthread.h>
 #include <unistd.h>
+#include <errno.h>
 #define CALL
 typedef pthread_t platform_thread;
 #define PLATFORM_THREAD(FuncName, CtxVarName) void* FuncName(void* CtxVarName)
@@ -125,6 +126,8 @@ uint32_t platform_cqe_get_status(platform_cqe* cqe) {
 
 #elif EC_EPOLL
 
+#include <sys/epoll.h>
+
 typedef int platform_event_queue;
 typedef struct platform_sqe {
     int fd;
@@ -181,6 +184,10 @@ uint32_t platform_cqe_get_status(platform_cqe* cqe) {
 }
 
 #elif EC_KQUEUE
+
+#include <sys/types.h>
+#include <sys/event.h>
+#include <sys/time.h>
 
 typedef int platform_event_queue;
 typedef struct platform_sqe {
