@@ -15,7 +15,7 @@ elseif (UNIX)
     if (USE_IO_URING)
         list(APPEND COMMON_DEFINES EC_IO_URING=1)
     else ()
-        list(APPEND COMMON_DEFINES EC_KQUEUE=1)
+        list(APPEND COMMON_DEFINES EC_EPOLL=1)
     endif ()
 endif ()
 

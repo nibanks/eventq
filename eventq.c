@@ -16,6 +16,8 @@ typedef HANDLE platform_thread;
 #define PLATFORM_THREAD(FuncName, CtxVarName) DWORD WINAPI FuncName(_In_ void* CtxVarName)
 #define PLATFORM_THREAD_RETURN(Status) return (DWORD)(Status)
 #else
+#include <pthread.h>
+#include <unistd.h>
 #define CALL
 typedef pthread_t platform_thread;
 #define PLATFORM_THREAD(FuncName, CtxVarName) void* FuncName(void* CtxVarName)
