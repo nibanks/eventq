@@ -22,7 +22,7 @@ jobs:
         mkdir build && cd build
         cmake -G 'Visual Studio 17 2022' -A x64 ..
         cmake --build .
-        cmake --install .
+        cmake --install . --config Debug
     - name: Run
       run: |
         & 'C:/Program Files/eventq/lib/eventq'
@@ -78,3 +78,5 @@ jobs:
         cmake -G 'Unix Makefiles' ..
         cmake --build .
         cmake --install .
+    - name: Run
+      run: /usr/local/lib/eventq
