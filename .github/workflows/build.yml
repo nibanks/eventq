@@ -45,23 +45,23 @@ jobs:
     - name: Run
       run: /usr/local/lib/eventq
 
-  io-uring:
-    permissions:
-      contents: read
-    name: IO_URING
-    needs: []
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@629c2de402a417ea7690ca6ce3f33229e27606a5
-    - name: Build
-      run: |
-        mkdir build && cd build
-        cmake -G 'Unix Makefiles' -DUSE_IO_URING=on ..
-        cmake --build .
-        sudo cmake --install .
-    - name: Run
-      run: /usr/local/lib/eventq
+  # io-uring:
+  #   permissions:
+  #     contents: read
+  #   name: IO_URING
+  #   needs: []
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #   - name: Checkout repository
+  #     uses: actions/checkout@629c2de402a417ea7690ca6ce3f33229e27606a5
+  #   - name: Build
+  #     run: |
+  #       mkdir build && cd build
+  #       cmake -G 'Unix Makefiles' -DUSE_IO_URING=on ..
+  #       cmake --build .
+  #       sudo cmake --install .
+  #   - name: Run
+  #     run: /usr/local/lib/eventq
 
   kqueue:
     permissions:
