@@ -9,12 +9,23 @@
 #include <stdbool.h>
 #include <stdio.h>
 
+//
+// Minimal platform abstractions.
+//
+
 #ifdef _WIN32
 #include <windows.h>
 #define CALL __cdecl
 typedef HANDLE platform_thread;
 #define PLATFORM_THREAD(FuncName, CtxVarName) DWORD WINAPI FuncName(_In_ void* CtxVarName)
 #define PLATFORM_THREAD_RETURN(Status) return (DWORD)(Status)
+void platform_thread_create(platform_thread* thread, LPTHREAD_START_ROUTINE func, void* ctx) {
+    *thread = CreateThread(NULL, 0, func, ctx, 0, NULL);
+}
+void platform_thread_destroy(platform_thread thread) {
+    WaitForSingleObject(thread, INFINITE);
+    CloseHandle(thread);
+}
 #else
 #include <pthread.h>
 #include <unistd.h>
@@ -23,10 +34,21 @@ typedef HANDLE platform_thread;
 typedef pthread_t platform_thread;
 #define PLATFORM_THREAD(FuncName, CtxVarName) void* FuncName(void* CtxVarName)
 #define PLATFORM_THREAD_RETURN(Status) return NULL
+void platform_thread_create(platform_thread* thread, void *(*func)(void *), void* ctx) {
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_create(thread, &attr, func, ctx);
+    pthread_attr_destroy(&attr);
+}
+void platform_thread_destroy(platform_thread thread) {
+    pthread_equal(thread, pthread_self());
+    pthread_join(thread, NULL);
+}
 #endif
 
 //
 // Different implementations of the event queue interface.
+//
 
 #if EC_IOCP
 
@@ -246,7 +268,6 @@ uint32_t eventq_cqe_get_status(eventq_cqe* cqe) {
 #define APP_EVENT_TYPE_START 0x8000
 
 uint32_t platform_wait_time = UINT32_MAX;
-
 uint32_t platform_get_wait_time(void) { return platform_wait_time; }
 void platform_process_timeout(void) { printf("Timeout\n"); platform_wait_time = UINT32_MAX; }
 void platform_process_event(eventq_cqe* cqe) { printf("Event %u\n", eventq_cqe_get_type(cqe)); }
@@ -273,15 +294,11 @@ eventq_sqe timer_sqe;
 #define APP_EVENT_TYPE_ECHO         (APP_EVENT_TYPE_START + 1)
 #define APP_EVENT_TYPE_START_TIMER  (APP_EVENT_TYPE_START + 2)
 
-void shutdown_main_loop() {
-    running = false;
-    eventq_enqueue(queue, &shutdown_sqe, APP_EVENT_TYPE_SHUTDOWN, NULL, 0);
-}
-
 void process_app_event(eventq_cqe* cqe) {
     switch (eventq_cqe_get_type(cqe)) {
     case APP_EVENT_TYPE_SHUTDOWN:
         printf("Shutdown event received\n");
+        running = false;
         break;
     case APP_EVENT_TYPE_ECHO:
         printf("Echo event received\n");
@@ -323,26 +340,13 @@ void start_main_loop() {
     eventq_sqe_initialize(queue, &shutdown_sqe);
     eventq_sqe_initialize(queue, &echo_sqe);
     eventq_sqe_initialize(queue, &timer_sqe);
-#ifdef _WIN32
-    thread = CreateThread(NULL, 0, main_loop, NULL, 0, NULL);
-#else
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    pthread_create(&thread, &attr, main_loop, NULL);
-    pthread_attr_destroy(&attr);
-#endif
+    platform_thread_create(&thread, main_loop, NULL);
 }
 
 void stop_main_loop() {
     printf("Stopping main loop\n");
-    shutdown_main_loop();
-#ifdef _WIN32
-    WaitForSingleObject(thread, INFINITE);
-    CloseHandle(thread);
-#else
-    pthread_equal(thread, pthread_self());
-    pthread_join(thread, NULL);
-#endif
+    eventq_enqueue(queue, &shutdown_sqe, APP_EVENT_TYPE_SHUTDOWN, NULL, 0);
+    platform_thread_destroy(thread);
     eventq_sqe_cleanup(queue, &shutdown_sqe);
     eventq_sqe_cleanup(queue, &echo_sqe);
     eventq_sqe_cleanup(queue, &timer_sqe);
