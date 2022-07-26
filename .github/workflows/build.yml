@@ -8,28 +8,62 @@ on:
 
 permissions: read-all
 
-jobs:
+iocp:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu, windows]
     permissions:
       contents: read
     name: Build
-    runs-on: ${{ matrix.os }}-latest
+    runs-on: windows-latest
     steps:
     - name: Checkout repository
       uses: actions/checkout@629c2de402a417ea7690ca6ce3f33229e27606a5
-    - name: Build (Linux)
-      if: runner.os == 'Linux'
+    - name: Build
+      run: |
+        mkdir build && cd build
+        cmake -G 'Visual Studio 17 2022' -A x64 ..
+        cmake --build .
+
+epoll:
+  build:
+    permissions:
+      contents: read
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@629c2de402a417ea7690ca6ce3f33229e27606a5
+    - name: Build
       run: |
         mkdir build && cd build
         cmake -G 'Unix Makefiles' ..
         cmake --build .
-    - name: Build (Windows)
-      if: runner.os == 'Windows'
+
+io-uring:
+  build:
+    permissions:
+      contents: read
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@629c2de402a417ea7690ca6ce3f33229e27606a5
+    - name: Build
       run: |
         mkdir build && cd build
-        cmake -G 'Visual Studio 17 2022' -A x64 ..
+        cmake -G 'Unix Makefiles' -DUSE_IO_URING=on ..
+        cmake --build .
+
+kqueue:
+  build:
+    permissions:
+      contents: read
+    name: Build
+    runs-on: macos-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@629c2de402a417ea7690ca6ce3f33229e27606a5
+    - name: Build
+      run: |
+        mkdir build && cd build
+        cmake -G 'Unix Makefiles' ..
         cmake --build .

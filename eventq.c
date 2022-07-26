@@ -119,6 +119,7 @@ uint32_t platform_cqe_get_status(platform_cqe* cqe) {
 #elif EC_EPOLL
 
 #include <sys/epoll.h>
+#include <sys/eventfd.h>
 
 typedef int platform_event_queue;
 typedef struct platform_sqe {
