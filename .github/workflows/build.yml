@@ -8,11 +8,11 @@ on:
 
 permissions: read-all
 
-iocp:
-  build:
+jobs:
+  iocp:
     permissions:
       contents: read
-    name: Build
+    name: IOCP
     runs-on: windows-latest
     steps:
     - name: Checkout repository
@@ -23,11 +23,11 @@ iocp:
         cmake -G 'Visual Studio 17 2022' -A x64 ..
         cmake --build .
 
-epoll:
-  build:
+  epoll:
     permissions:
       contents: read
-    name: Build
+    name: EPOLL
+    needs: []
     runs-on: ubuntu-latest
     steps:
     - name: Checkout repository
@@ -38,11 +38,11 @@ epoll:
         cmake -G 'Unix Makefiles' ..
         cmake --build .
 
-io-uring:
-  build:
+  io-uring:
     permissions:
       contents: read
-    name: Build
+    name: IO_URING
+    needs: []
     runs-on: ubuntu-latest
     steps:
     - name: Checkout repository
@@ -53,11 +53,11 @@ io-uring:
         cmake -G 'Unix Makefiles' -DUSE_IO_URING=on ..
         cmake --build .
 
-kqueue:
-  build:
+  kqueue:
     permissions:
       contents: read
-    name: Build
+    name: KQUEUE
+    needs: []
     runs-on: macos-latest
     steps:
     - name: Checkout repository
