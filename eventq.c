@@ -73,6 +73,8 @@ uint32_t platform_cqe_get_status(platform_cqe* cqe) {
 
 #elif EC_IO_URING
 
+#include <liburing.h>
+
 typedef struct io_uring platform_event_queue;
 typedef struct platform_sqe {
     uint32_t type;
@@ -167,13 +169,13 @@ uint32_t platform_event_queue_dequeue(platform_event_queue queue, platform_cqe* 
     return (uint32_t)result;
 }
 uint32_t platform_cqe_get_type(platform_cqe* cqe) {
-    return ((platform_sqe*)cqe->data_ptr)->type;
+    return ((platform_sqe*)cqe->data.ptr)->type;
 }
 void* platform_cqe_get_user_data(platform_cqe* cqe) {
-    return ((platform_sqe*)cqe->data_ptr)->user_data;
+    return ((platform_sqe*)cqe->data.ptr)->user_data;
 }
 uint32_t platform_cqe_get_status(platform_cqe* cqe) {
-    return ((platform_sqe*)cqe->data_ptr)->status;
+    return ((platform_sqe*)cqe->data.ptr)->status;
 }
 
 #elif EC_KQUEUE
@@ -221,7 +223,7 @@ uint32_t platform_event_queue_dequeue(platform_event_queue queue, platform_cqe* 
     }
     int result;
     do {
-        result = kevent(queue, NULL, 0, events, count, wait_time == UINT32_MAX ? NULL, &timeout);
+        result = kevent(queue, NULL, 0, events, count, wait_time == UINT32_MAX ? NULL : &timeout);
     } while ((result == -1L) && (errno == EINTR));
     return (uint32_t)result;
 }
