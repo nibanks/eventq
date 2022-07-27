@@ -62,6 +62,7 @@ PLATFORM_THREAD(main_loop, context) {
                         break;
                     }
                 }
+                eventq_return(state->queue, &events[i]);
             }
         }
     }
