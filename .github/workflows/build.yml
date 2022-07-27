@@ -27,6 +27,24 @@ jobs:
       run: |
         & 'C:/Program Files/eventq/lib/eventq'
 
+  kqueue:
+    permissions:
+      contents: read
+    name: KQUEUE
+    needs: []
+    runs-on: macos-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@629c2de402a417ea7690ca6ce3f33229e27606a5
+    - name: Build
+      run: |
+        mkdir build && cd build
+        cmake -G 'Unix Makefiles' ..
+        cmake --build .
+        cmake --install .
+    - name: Run
+      run: /usr/local/lib/eventq
+
   epoll:
     permissions:
       contents: read
@@ -62,21 +80,3 @@ jobs:
   #       sudo cmake --install .
   #   - name: Run
   #     run: /usr/local/lib/eventq
-
-  kqueue:
-    permissions:
-      contents: read
-    name: KQUEUE
-    needs: []
-    runs-on: macos-latest
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@629c2de402a417ea7690ca6ce3f33229e27606a5
-    - name: Build
-      run: |
-        mkdir build && cd build
-        cmake -G 'Unix Makefiles' ..
-        cmake --build .
-        cmake --install .
-    - name: Run
-      run: /usr/local/lib/eventq
