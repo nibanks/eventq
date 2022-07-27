@@ -172,7 +172,7 @@ typedef struct platform_socket {
     eventq_sqe sqe;
     SOCKET fd;
     struct sockaddr recv_addr;
-    int recv_addr_len;
+    socklen_t recv_addr_len;
     uint8_t buffer[1500];
 } platform_socket;
 
