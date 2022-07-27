@@ -216,7 +216,7 @@ void eventq_enqueue(eventq queue, eventq_sqe* sqe, uint32_t type, void* user_dat
 }
 uint32_t eventq_dequeue(eventq queue, eventq_cqe* events, uint32_t count, uint32_t wait_time) {
     if (wait_time != UINT32_MAX) {
-        __kernel_timespec timeout;
+        struct __kernel_timespec timeout;
         timeout.tv_sec += (wait_time / 1000);
         timeout.tv_nsec += ((wait_time % 1000) * 1000000);
         return io_uring_wait_cqes(&queue, events, count, &timeout, 0);
