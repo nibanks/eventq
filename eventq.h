@@ -219,9 +219,9 @@ uint32_t eventq_dequeue(eventq queue, eventq_cqe* events, uint32_t count, uint32
     //io_uring_wait_cqes(&queue, events, count, wait_time); // TODO - multiple return and wait_time
     return 1;
 }
-uint32_t eventq_cqe_get_type(eventq_cqe* cqe) { return ((eventq_sqe*)io_uring_cqe_get_data(cqe))->type; }
-void* eventq_cqe_get_user_data(eventq_cqe* cqe) { return ((eventq_sqe*)io_uring_cqe_get_data(cqe))->user_data; }
-uint32_t eventq_cqe_get_status(eventq_cqe* cqe) { return ((eventq_sqe*)io_uring_cqe_get_data(cqe))->status; }
+uint32_t eventq_cqe_get_type(eventq_cqe* cqe) { return ((eventq_sqe*)io_uring_cqe_get_data(*cqe))->type; }
+void* eventq_cqe_get_user_data(eventq_cqe* cqe) { return ((eventq_sqe*)io_uring_cqe_get_data(*cqe))->user_data; }
+uint32_t eventq_cqe_get_status(eventq_cqe* cqe) { return ((eventq_sqe*)io_uring_cqe_get_data(*cqe))->status; }
 
 #else
 
