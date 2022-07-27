@@ -200,11 +200,10 @@ typedef struct eventq_sqe {
 typedef struct io_uring_cqe* eventq_cqe;
 
 bool eventq_initialize(eventq* queue) {
-    io_uring_queue_init(256, queue, 0); // TODO - Can this fail?
-    return true;
+    return 0 == io_uring_queue_init(1, queue, 0);
 }
 void eventq_cleanup(eventq queue) {
-    // TODO - How to cleanup?
+    io_uring_queue_exit(&queue);
 }
 bool eventq_sqe_initialize(eventq queue, eventq_sqe* sqe) { }
 void eventq_sqe_cleanup(eventq queue, eventq_sqe* sqe) { }
@@ -213,6 +212,10 @@ void eventq_enqueue(eventq queue, eventq_sqe* sqe, uint32_t type, void* user_dat
     sqe->user_data = user_data;
     sqe->status = status;
     struct io_uring_sqe *io_sqe = io_uring_get_sqe(&queue);
+    if (io_sqe == NULL) {
+        printf("io_uring_get_sqe returned NULL\n");
+        return;
+    }
     io_uring_prep_nop(io_sqe);
     io_uring_sqe_set_data(io_sqe, sqe);
     io_uring_submit(&queue); // TODO - Extract to separate function?

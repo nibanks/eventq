@@ -61,7 +61,7 @@ PLATFORM_THREAD(main_loop, context) {
 }
 
 void start_main_loop(app_state* state) {
-    eventq_initialize(&state->queue);
+    if (!eventq_initialize(&state->queue)) printf("eventq_initialize failed\n");
     eventq_sqe_initialize(state->queue, &state->shutdown_sqe);
     eventq_sqe_initialize(state->queue, &state->echo_sqe);
     eventq_sqe_initialize(state->queue, &state->timer_sqe);
