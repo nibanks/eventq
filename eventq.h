@@ -327,7 +327,7 @@ typedef struct eventq_sqe {
 typedef struct io_uring_cqe* eventq_cqe;
 
 typedef struct platform_socket {
-    eventq_sqe;
+    eventq_sqe sqe;
     SOCKET fd;
     struct sockaddr recv_addr;
     int recv_addr_len;
@@ -345,6 +345,27 @@ bool eventq_sqe_initialize(eventq queue, eventq_sqe* sqe) { }
 void eventq_sqe_cleanup(eventq queue, eventq_sqe* sqe) { }
 bool eventq_socket_create(eventq queue, platform_socket* sock) {
     return (sock->fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) != (SOCKET)-1;
+}
+bool eventq_socket_receive_start(eventq queue, platform_socket* sock) {
+    sock->sqe.type = PLATFORM_EVENT_TYPE_SOCKET_RECEIVE;
+    struct io_uring_sqe *io_sqe = io_uring_get_sqe(&queue);
+    io_uring_prep_recv(io_sqe, sock->fd, sock->buffer, sizeof(sock->buffer), 0);
+    io_uring_sqe_set_data(io_sqe, &sock->sqe);
+    io_uring_submit(&queue); // TODO - Extract to separate function?
+}
+void eventq_socket_receive_complete(eventq_cqe* cqe) {
+    //platform_socket* sock = (platform_socket*)cqe->data.ptr;
+    printf("Receive complete\n"); // TODO - Grab receive length
+}
+bool eventq_socket_send_start(eventq queue, platform_socket* sock) {
+    sock->sqe.type = PLATFORM_EVENT_TYPE_SOCKET_SEND;
+    printf("Sending %u bytes\n", (uint32_t)sizeof(sock->buffer)-10);
+    struct io_uring_sqe *io_sqe = io_uring_get_sqe(&queue);
+    io_uring_prep_send(io_sqe, sock->fd, sock->buffer, sizeof(sock->buffer)-10, 0);
+    io_uring_sqe_set_data(io_sqe, &sock->sqe);
+    io_uring_submit(&queue); // TODO - Extract to separate function?
+}
+void eventq_socket_send_complete(eventq_cqe* cqe) {
 }
 void eventq_enqueue(eventq queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
     sqe->type = type;
