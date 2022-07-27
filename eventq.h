@@ -214,15 +214,14 @@ void eventq_enqueue(eventq queue, eventq_sqe* sqe, uint32_t type, void* user_dat
     io_uring_sqe_set_data(io_sqe, sqe);
     io_uring_submit(&queue); // TODO - Extract to separate function?
 }
-#define CXPLAT_NANOSEC_PER_MS       (1000000)
-#define CXPLAT_MS_PER_SECOND        (1000)
 uint32_t eventq_dequeue(eventq queue, eventq_cqe* events, uint32_t count, uint32_t wait_time) {
-    __kernel_timespec timeout = {0, 0};
     if (wait_time != UINT32_MAX) {
-        timeout.tv_sec += (wait_time / CXPLAT_MS_PER_SECOND);
-        timeout.tv_nsec += ((wait_time % CXPLAT_MS_PER_SECOND) * CXPLAT_NANOSEC_PER_MS);
+        __kernel_timespec timeout;
+        timeout.tv_sec += (wait_time / 1000);
+        timeout.tv_nsec += ((wait_time % 1000) * 1000000);
+        return io_uring_wait_cqes(&queue, events, count, &timeout, 0);
     }
-    return io_uring_wait_cqes(&queue, events, count, wait_time != UINT32_MAX ? &timeout : 0, 0);
+    return io_uring_wait_cqes(&queue, events, count, 0, 0);
 }
 uint32_t eventq_cqe_get_type(eventq_cqe* cqe) { return ((eventq_sqe*)io_uring_cqe_get_data(*cqe))->type; }
 void* eventq_cqe_get_user_data(eventq_cqe* cqe) { return ((eventq_sqe*)io_uring_cqe_get_data(*cqe))->user_data; }
