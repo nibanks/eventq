@@ -188,6 +188,23 @@ void eventq_sqe_cleanup(eventq queue, eventq_sqe* sqe) { }
 bool eventq_socket_create(eventq queue, platform_socket* sock) {
     return (sock->fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) != (SOCKET)-1;
 }
+bool eventq_socket_receive_start(eventq queue, platform_socket* sock) {
+    sock->sqe.type = PLATFORM_EVENT_TYPE_SOCKET_RECEIVE;
+    struct kevent event = {0};
+    EV_SET(&event, sock->fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, (void*)sock);
+    return 0 <= kevent(queue, &event, 1, NULL, 0, NULL);
+}
+void eventq_socket_receive_complete(eventq_cqe* cqe) {
+    platform_socket* sock = (platform_socket*)cqe->data.ptr;
+    int result = recvfrom(sock->fd, sock->buffer, sizeof(sock->buffer), 0, &sock->recv_addr, &sock->recv_addr_len);
+    printf("Receive complete, %d bytes\n", result);
+}
+bool eventq_socket_send_start(eventq queue, platform_socket* sock) {
+    printf("Sending %u bytes\n", (uint32_t)sizeof(sock->buffer)-10);
+    return send(sock->fd, sock->buffer, sizeof(sock->buffer)-10, 0) != -1;
+}
+void eventq_socket_send_complete(eventq_cqe* cqe) {
+}
 void eventq_enqueue(eventq queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
     struct kevent event = {0};
     sqe->type = type;
@@ -262,15 +279,13 @@ bool eventq_socket_create(eventq queue, platform_socket* sock) {
 }
 bool eventq_socket_receive_start(eventq queue, platform_socket* sock) {
     sock->sqe.type = PLATFORM_EVENT_TYPE_SOCKET_RECEIVE;
-    struct epoll_event SockFdEpEvt = { .events = EPOLLIN, .data = { .ptr = sock } };
-    return 0 ==
-        epoll_ctl(
-            queue,
-            EPOLL_CTL_ADD,
-            sock->fd,
-            &SockFdEpEvt);
+    struct epoll_event event = { .events = EPOLLIN | EPOLLET, .data = { .ptr = sock } };
+    return 0 == epoll_ctl(queue, EPOLL_CTL_ADD, sock->fd, &event);
 }
 void eventq_socket_receive_complete(eventq_cqe* cqe) {
+    platform_socket* sock = (platform_socket*)cqe->data.ptr;
+    int result = recvfrom(sock->fd, sock->buffer, sizeof(sock->buffer), 0, &sock->recv_addr, &sock->recv_addr_len);
+    printf("Receive complete, %d bytes\n", result);
 }
 bool eventq_socket_send_start(eventq queue, platform_socket* sock) {
     printf("Sending %u bytes\n", (uint32_t)sizeof(sock->buffer)-10);
