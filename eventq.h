@@ -209,13 +209,14 @@ void eventq_enqueue(eventq queue, eventq_sqe* sqe, uint32_t type, void* user_dat
     sqe->type = type;
     sqe->user_data = user_data;
     sqe->status = status;
-    struct io_uring_sqe *io_sqe = io_uring_get_sqe(queue);
+    struct io_uring_sqe *io_sqe = io_uring_get_sqe(&queue);
     io_uring_prep_nop(io_sqe); // TODO - Check args
     io_uring_sqe_set_data(io_sqe, sqe);
-    io_uring_submit(queue); // TODO - Extract to separate function?
+    io_uring_submit(&queue); // TODO - Extract to separate function?
 }
 uint32_t eventq_dequeue(eventq queue, eventq_cqe* events, uint32_t count, uint32_t wait_time) {
     io_uring_wait_cqe(queue, events); // TODO - multiple return and wait_time
+    //io_uring_wait_cqes(&queue, events, wait_time); // TODO - multiple return and wait_time
     return 1;
 }
 uint32_t eventq_cqe_get_type(eventq_cqe* cqe) { return ((eventq_sqe*)cqe->user_data)->type; }
