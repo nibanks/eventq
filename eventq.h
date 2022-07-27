@@ -210,18 +210,18 @@ void eventq_enqueue(eventq queue, eventq_sqe* sqe, uint32_t type, void* user_dat
     sqe->user_data = user_data;
     sqe->status = status;
     struct io_uring_sqe *io_sqe = io_uring_get_sqe(&queue);
-    io_uring_prep_nop(io_sqe); // TODO - Check args
+    io_uring_prep_nop(io_sqe);
     io_uring_sqe_set_data(io_sqe, sqe);
     io_uring_submit(&queue); // TODO - Extract to separate function?
 }
 uint32_t eventq_dequeue(eventq queue, eventq_cqe* events, uint32_t count, uint32_t wait_time) {
-    io_uring_wait_cqe(queue, events); // TODO - multiple return and wait_time
-    //io_uring_wait_cqes(&queue, events, wait_time); // TODO - multiple return and wait_time
+    io_uring_wait_cqe(&queue, events); // TODO - multiple return and wait_time
+    //io_uring_wait_cqes(&queue, events, count, wait_time); // TODO - multiple return and wait_time
     return 1;
 }
-uint32_t eventq_cqe_get_type(eventq_cqe* cqe) { return ((eventq_sqe*)cqe->user_data)->type; }
-void* eventq_cqe_get_user_data(eventq_cqe* cqe) { return ((eventq_sqe*)cqe->user_data)->user_data; }
-uint32_t eventq_cqe_get_status(eventq_cqe* cqe) { return ((eventq_sqe*)cqe->user_data)->status; }
+uint32_t eventq_cqe_get_type(eventq_cqe* cqe) { return ((eventq_sqe*)io_uring_cqe_get_data(cqe))->type; }
+void* eventq_cqe_get_user_data(eventq_cqe* cqe) { return ((eventq_sqe*)io_uring_cqe_get_data(cqe))->user_data; }
+uint32_t eventq_cqe_get_status(eventq_cqe* cqe) { return ((eventq_sqe*)io_uring_cqe_get_data(cqe))->status; }
 
 #else
 
