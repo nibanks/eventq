@@ -11,10 +11,15 @@ eventq queue;
 eventq_sqe shutdown_sqe;
 eventq_sqe echo_sqe;
 eventq_sqe timer_sqe;
+eventq_sqe create_socket_sqe;
+platform_socket app_socket;
 
-#define APP_EVENT_TYPE_SHUTDOWN     (APP_EVENT_TYPE_START + 0)
-#define APP_EVENT_TYPE_ECHO         (APP_EVENT_TYPE_START + 1)
-#define APP_EVENT_TYPE_START_TIMER  (APP_EVENT_TYPE_START + 2)
+typedef enum APP_EVENT_TYPE {
+    APP_EVENT_TYPE_SHUTDOWN = APP_EVENT_TYPE_START,
+    APP_EVENT_TYPE_ECHO,
+    APP_EVENT_TYPE_START_TIMER,
+    APP_EVENT_TYPE_CREATE_SOCKET,
+} APP_EVENT_TYPE;
 
 PLATFORM_THREAD(main_loop, context) {
     printf("Main loop start\n");
@@ -30,7 +35,7 @@ PLATFORM_THREAD(main_loop, context) {
                 if (eventq_cqe_get_type(&events[i]) < APP_EVENT_TYPE_START) {
                     platform_process_event(&events[i]);
                 } else {
-                    switch (eventq_cqe_get_type(&events[i])) {
+                    switch ((APP_EVENT_TYPE)eventq_cqe_get_type(&events[i])) {
                     case APP_EVENT_TYPE_SHUTDOWN:
                         printf("Shutdown event received\n");
                         running = false;
@@ -41,6 +46,17 @@ PLATFORM_THREAD(main_loop, context) {
                     case APP_EVENT_TYPE_START_TIMER:
                         platform_wait_time = eventq_cqe_get_status(&events[i]);
                         printf("Starting %u ms timer\n", platform_wait_time);
+                        break;
+                    case APP_EVENT_TYPE_CREATE_SOCKET:
+                        if (eventq_cqe_get_status(&events[i])) {
+                            if (!platform_socket_create_listener(&app_socket, queue))
+                                printf("Failed to create listener socket\n");
+                            else printf("Listener socket = %u\n", (uint32_t)app_socket.fd);
+                        } else {
+                            if (!platform_socket_create_client(&app_socket, queue))
+                                printf("Failed to create client socket\n");
+                            else printf("Client socket = %u\n", (uint32_t)app_socket.fd);
+                        }
                         break;
                     }
                 }
@@ -59,6 +75,7 @@ void start_main_loop() {
     eventq_sqe_initialize(queue, &shutdown_sqe);
     eventq_sqe_initialize(queue, &echo_sqe);
     eventq_sqe_initialize(queue, &timer_sqe);
+    eventq_sqe_initialize(queue, &create_socket_sqe);
     platform_thread_create(&thread, main_loop, NULL);
 }
 
@@ -69,13 +86,15 @@ void stop_main_loop() {
     eventq_sqe_cleanup(queue, &shutdown_sqe);
     eventq_sqe_cleanup(queue, &echo_sqe);
     eventq_sqe_cleanup(queue, &timer_sqe);
+    eventq_sqe_cleanup(queue, &create_socket_sqe);
     eventq_cleanup(queue);
 }
 
 int CALL main(int argc, char **argv) {
+    platform_sockets_init();
     start_main_loop();
 
-    platform_sleep(1000);
+    /*platform_sleep(1000);
     printf("Sending echo event\n");
     eventq_enqueue(queue, &echo_sqe, APP_EVENT_TYPE_ECHO, NULL, 0);
     printf("Sending timer event\n");
@@ -83,7 +102,16 @@ int CALL main(int argc, char **argv) {
 
     platform_sleep(1000);
     printf("Sending echo event\n");
-    eventq_enqueue(queue, &echo_sqe, APP_EVENT_TYPE_ECHO, NULL, 0);
+    eventq_enqueue(queue, &echo_sqe, APP_EVENT_TYPE_ECHO, NULL, 0);*/
+
+    if (argc == 1) {
+        printf("Sending create socket (listener)\n");
+        eventq_enqueue(queue, &echo_sqe, APP_EVENT_TYPE_CREATE_SOCKET, NULL, 1);
+    } else {
+        printf("Sending create socket (client)\n");
+        eventq_enqueue(queue, &echo_sqe, APP_EVENT_TYPE_CREATE_SOCKET, NULL, 0);
+    }
+    platform_sleep(10000);
 
     stop_main_loop();
     return 0;

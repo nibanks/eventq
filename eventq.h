@@ -13,8 +13,17 @@
 // Minimal platform abstractions.
 //
 
+#define PLATFORM_SOCKET_PORT 9009
+
+typedef enum PLATFORM_EVENT_TYPE {
+    PLATFORM_EVENT_TYPE_SOCKET_RECEIVE,
+    PLATFORM_EVENT_TYPE_SOCKET_SEND,
+} PLATFORM_EVENT_TYPE;
+
 #ifdef _WIN32
+#define _WINSOCK_DEPRECATED_NO_WARNINGS 1
 #include <windows.h>
+#include <WinSock2.h>
 #define CALL __cdecl
 typedef HANDLE platform_thread;
 #define PLATFORM_THREAD(FuncName, CtxVarName) DWORD WINAPI FuncName(_In_ void* CtxVarName)
@@ -26,10 +35,14 @@ void platform_thread_destroy(platform_thread thread) {
     WaitForSingleObject(thread, INFINITE);
     CloseHandle(thread);
 }
-#else
+void platform_sockets_init(void) { WSADATA WsaData; WSAStartup(MAKEWORD(2, 2), &WsaData); }
+int platform_socket_close(SOCKET s) { return closesocket(s); }
+#else // !_WIN32
 #include <pthread.h>
 #include <unistd.h>
 #include <errno.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
 #define CALL
 typedef pthread_t platform_thread;
 #define PLATFORM_THREAD(FuncName, CtxVarName) void* FuncName(void* CtxVarName)
@@ -44,7 +57,10 @@ void platform_thread_destroy(platform_thread thread) {
     pthread_equal(thread, pthread_self());
     pthread_join(thread, NULL);
 }
-#endif
+typedef int SOCKET;
+void platform_sockets_init(void) { }
+int platform_socket_close(SOCKET s) { return close(s); }
+#endif // !_WIN32
 
 //
 // Different implementations of the event queue interface.
@@ -59,6 +75,15 @@ typedef struct eventq_sqe {
 } eventq_sqe;
 typedef OVERLAPPED_ENTRY eventq_cqe;
 
+typedef struct platform_socket {
+    eventq_sqe sqe;
+    SOCKET fd;
+    WSABUF buf;
+    struct sockaddr recv_addr;
+    int recv_addr_len;
+    uint8_t buffer[1500];
+} platform_socket;
+
 bool eventq_initialize(eventq* queue) {
     *queue = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 1);
     return *queue != NULL;
@@ -68,6 +93,53 @@ void eventq_cleanup(eventq queue) {
 }
 bool eventq_sqe_initialize(eventq queue, eventq_sqe* sqe) { return true; }
 void eventq_sqe_cleanup(eventq queue, eventq_sqe* sqe) { }
+bool eventq_socket_create(eventq queue, platform_socket* sock) {
+    sock->fd = WSASocketW(AF_INET, SOCK_DGRAM, IPPROTO_UDP, NULL, 0, WSA_FLAG_OVERLAPPED);
+    if (sock->fd == (SOCKET)-1) return false;
+    if (queue != CreateIoCompletionPort((HANDLE)sock->fd, queue, (ULONG_PTR)sock, 0)) {
+        closesocket(sock->fd);
+        return false;
+    }
+    return true;
+}
+bool eventq_socket_receive_start(eventq queue, platform_socket* sock) {
+    sock->sqe.type = PLATFORM_EVENT_TYPE_SOCKET_RECEIVE;
+    sock->recv_addr_len = sizeof(sock->recv_addr);
+    sock->buf.buf = sock->buffer;
+    sock->buf.len = sizeof(sock->buffer);
+    ZeroMemory(&sock->sqe, sizeof(OVERLAPPED));
+    DWORD bytesRecv = 0;
+    DWORD flags = 0;
+    int result = WSARecvFrom(sock->fd, &sock->buf, 1, &bytesRecv, &flags, &sock->recv_addr, &sock->recv_addr_len, (OVERLAPPED*)&sock->sqe, NULL);
+    if (result == SOCKET_ERROR) {
+        if (WSAGetLastError() != WSA_IO_PENDING) {
+            printf("WSARecvFrom failed with error: %d\n", WSAGetLastError());
+            return false;
+        }
+    }
+    return true;
+}
+void eventq_socket_receive_complete(eventq_cqe* cqe) {
+    printf("Receive complete, %u bytes\n", cqe->dwNumberOfBytesTransferred);
+}
+bool eventq_socket_send_start(eventq queue, platform_socket* sock) {
+    sock->sqe.type = PLATFORM_EVENT_TYPE_SOCKET_SEND;
+    sock->buf.buf = sock->buffer;
+    sock->buf.len = sizeof(sock->buffer) - 10;
+    ZeroMemory(&sock->sqe, sizeof(OVERLAPPED));
+    printf("Sending %u bytes\n", sock->buf.len);
+    int result = WSASend(sock->fd, &sock->buf, 1, NULL, 0, (OVERLAPPED*)&sock->sqe, NULL);
+    if (result == SOCKET_ERROR) {
+        if (WSAGetLastError() != WSA_IO_PENDING) {
+            printf("WSASend failed with error: %d\n", WSAGetLastError());
+            return false;
+        }
+    }
+    return true;
+}
+void eventq_socket_send_complete(eventq_cqe* cqe) {
+    printf("Send complete\n");
+}
 void eventq_enqueue(eventq queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
     memset(sqe, 0, sizeof(*sqe));
     sqe->type = type;
@@ -96,6 +168,14 @@ typedef struct eventq_sqe {
 } eventq_sqe;
 typedef struct kevent eventq_cqe;
 
+typedef struct platform_socket {
+    eventq_sqe;
+    SOCKET fd;
+    struct sockaddr recv_addr;
+    int recv_addr_len;
+    uint8_t buffer[1500];
+} platform_socket;
+
 bool eventq_initialize(eventq* queue) {
     *queue = kqueue();
     return *queue != -1;
@@ -105,6 +185,9 @@ void eventq_cleanup(eventq queue) {
 }
 bool eventq_sqe_initialize(eventq queue, eventq_sqe* sqe) { return true; }
 void eventq_sqe_cleanup(eventq queue, eventq_sqe* sqe) { }
+bool eventq_socket_create(eventq queue, platform_socket* sock) {
+    return (sock->fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) != (SOCKET)-1;
+}
 void eventq_enqueue(eventq queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
     struct kevent event = {0};
     sqe->type = type;
@@ -145,6 +228,14 @@ typedef struct eventq_sqe {
 } eventq_sqe;
 typedef struct epoll_event eventq_cqe;
 
+typedef struct platform_socket {
+    eventq_sqe sqe;
+    SOCKET fd;
+    struct sockaddr recv_addr;
+    int recv_addr_len;
+    uint8_t buffer[1500];
+} platform_socket;
+
 bool eventq_initialize(eventq* queue) {
     *queue = epoll_create1(EPOLL_CLOEXEC);
     return *queue != -1;
@@ -165,6 +256,27 @@ bool eventq_sqe_initialize(eventq queue, eventq_sqe* sqe) {
 void eventq_sqe_cleanup(eventq queue, eventq_sqe* sqe) {
     epoll_ctl(queue, EPOLL_CTL_DEL, sqe->fd, NULL);
     close(sqe->fd);
+}
+bool eventq_socket_create(eventq queue, platform_socket* sock) {
+    return (sock->fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) != (SOCKET)-1;
+}
+bool eventq_socket_receive_start(eventq queue, platform_socket* sock) {
+    sock->sqe.type = PLATFORM_EVENT_TYPE_SOCKET_RECEIVE;
+    struct epoll_event SockFdEpEvt = { .events = EPOLLIN, .data = { .ptr = sock } };
+    return 0 ==
+        epoll_ctl(
+            queue,
+            EPOLL_CTL_ADD,
+            sock->fd,
+            &SockFdEpEvt);
+}
+void eventq_socket_receive_complete(eventq_cqe* cqe) {
+}
+bool eventq_socket_send_start(eventq queue, platform_socket* sock) {
+    printf("Sending %u bytes\n", (uint32_t)sizeof(sock->buffer)-10);
+    return send(sock->fd, sock->buffer, sizeof(sock->buffer)-10, 0) != -1;
+}
+void eventq_socket_send_complete(eventq_cqe* cqe) {
 }
 void eventq_enqueue(eventq queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
     sqe->type = type;
@@ -196,6 +308,14 @@ typedef struct eventq_sqe {
 } eventq_sqe;
 typedef struct io_uring_cqe* eventq_cqe;
 
+typedef struct platform_socket {
+    eventq_sqe;
+    SOCKET fd;
+    struct sockaddr recv_addr;
+    int recv_addr_len;
+    uint8_t buffer[1500];
+} platform_socket;
+
 bool eventq_initialize(eventq* queue) {
     io_uring_queue_init(4, queue, 0); // TODO - Can this fail?
     return true;
@@ -205,6 +325,9 @@ void eventq_cleanup(eventq queue) {
 }
 bool eventq_sqe_initialize(eventq queue, eventq_sqe* sqe) { }
 void eventq_sqe_cleanup(eventq queue, eventq_sqe* sqe) { }
+bool eventq_socket_create(eventq queue, platform_socket* sock) {
+    return (sock->fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) != (SOCKET)-1;
+}
 void eventq_enqueue(eventq queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
     sqe->type = type;
     sqe->user_data = user_data;
@@ -238,11 +361,66 @@ uint32_t eventq_cqe_get_status(eventq_cqe* cqe) { return ((eventq_sqe*)cqe->user
 uint32_t platform_wait_time = UINT32_MAX;
 uint32_t platform_get_wait_time(void) { return platform_wait_time; }
 void platform_process_timeout(void) { printf("Timeout\n"); platform_wait_time = UINT32_MAX; }
-void platform_process_event(eventq_cqe* cqe) { printf("Event %u\n", eventq_cqe_get_type(cqe)); }
+void platform_process_event(eventq_cqe* cqe) {
+    switch (eventq_cqe_get_type(cqe)) {
+    case PLATFORM_EVENT_TYPE_SOCKET_RECEIVE:
+        eventq_socket_receive_complete(cqe);
+        break;
+    case PLATFORM_EVENT_TYPE_SOCKET_SEND:
+        eventq_socket_send_complete(cqe);
+        break;
+    default:
+        printf("Unexpected Event %u\n", eventq_cqe_get_type(cqe));
+        break;
+    }
+}
 void platform_sleep(uint32_t milliseconds) {
 #ifdef _WIN32
     Sleep(milliseconds);
 #else
     usleep(milliseconds * 1000);
 #endif
+}
+
+bool platform_socket_create_listener(platform_socket* sock, eventq queue) {
+    if (!eventq_socket_create(queue, sock)) return false;
+    struct sockaddr_in addr;
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(PLATFORM_SOCKET_PORT);
+    addr.sin_addr.s_addr = INADDR_ANY;
+    int res = bind(sock->fd, (struct sockaddr*)&addr, sizeof(addr));
+    if (res == -1) {
+        platform_socket_close(sock->fd);
+        return false;
+    }
+    if (!eventq_socket_receive_start(queue, sock)) {
+        platform_socket_close(sock->fd);
+        return false;
+    }
+    return true;
+}
+
+bool platform_socket_create_client(platform_socket* sock, eventq queue) {
+    if (!eventq_socket_create(queue, sock)) return false;
+    struct sockaddr_in addr;
+    addr.sin_family = AF_INET;
+    addr.sin_port = 0;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    int res = bind(sock->fd, (struct sockaddr*)&addr, sizeof(addr));
+    if (res == -1) {
+        platform_socket_close(sock->fd);
+        return false;
+    }
+    addr.sin_port = htons(PLATFORM_SOCKET_PORT);
+    addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    res = connect(sock->fd, (struct sockaddr*)&addr, sizeof(addr));
+    if (res == -1) {
+        platform_socket_close(sock->fd);
+        return false;
+    }
+    if (!eventq_socket_send_start(queue, sock)) {
+        platform_socket_close(sock->fd);
+        return false;
+    }
+    return true;
 }
