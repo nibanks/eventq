@@ -78,6 +78,7 @@ uint32_t eventq_dequeue(eventq queue, eventq_cqe* events, uint32_t count, uint32
     GetQueuedCompletionStatusEx(queue, events, count, &out_count, wait_time, FALSE); // TODO - How to handle errors?
     return out_count;
 }
+void eventq_return(eventq queue, eventq_cqe* cqe) { }
 uint32_t eventq_cqe_get_type(eventq_cqe* cqe) { return ((eventq_sqe*)cqe->lpOverlapped)->type; }
 void* eventq_cqe_get_user_data(eventq_cqe* cqe) { return (void*)cqe->lpCompletionKey; }
 uint32_t eventq_cqe_get_status(eventq_cqe* cqe) { return cqe->dwNumberOfBytesTransferred; }
@@ -127,6 +128,7 @@ uint32_t eventq_dequeue(eventq queue, eventq_cqe* events, uint32_t count, uint32
     } while ((result == -1L) && (errno == EINTR));
     return (uint32_t)result;
 }
+void eventq_return(eventq queue, eventq_cqe* cqe) { }
 uint32_t eventq_cqe_get_type(eventq_cqe* cqe) { return ((eventq_sqe*)cqe->udata)->type; }
 void* eventq_cqe_get_user_data(eventq_cqe* cqe) { return ((eventq_sqe*)cqe->udata)->user_data; }
 uint32_t eventq_cqe_get_status(eventq_cqe* cqe) { return ((eventq_sqe*)cqe->udata)->status; }
@@ -180,6 +182,7 @@ uint32_t eventq_dequeue(eventq queue, eventq_cqe* events, uint32_t count, uint32
     } while ((result == -1L) && (errno == EINTR));
     return (uint32_t)result;
 }
+void eventq_return(eventq queue, eventq_cqe* cqe) { }
 uint32_t eventq_cqe_get_type(eventq_cqe* cqe) { return ((eventq_sqe*)cqe->data.ptr)->type; }
 void* eventq_cqe_get_user_data(eventq_cqe* cqe) { return ((eventq_sqe*)cqe->data.ptr)->user_data; }
 uint32_t eventq_cqe_get_status(eventq_cqe* cqe) { return ((eventq_sqe*)cqe->data.ptr)->status; }
@@ -197,7 +200,7 @@ typedef struct eventq_sqe {
 typedef struct io_uring_cqe* eventq_cqe;
 
 bool eventq_initialize(eventq* queue) {
-    io_uring_queue_init(4, queue, 0); // TODO - Can this fail?
+    io_uring_queue_init(256, queue, 0); // TODO - Can this fail?
     return true;
 }
 void eventq_cleanup(eventq queue) {
@@ -209,18 +212,26 @@ void eventq_enqueue(eventq queue, eventq_sqe* sqe, uint32_t type, void* user_dat
     sqe->type = type;
     sqe->user_data = user_data;
     sqe->status = status;
-    struct io_uring_sqe *io_sqe = io_uring_get_sqe(queue);
-    io_uring_prep_nop(io_sqe); // TODO - Check args
+    struct io_uring_sqe *io_sqe = io_uring_get_sqe(&queue);
+    io_uring_prep_nop(io_sqe);
     io_uring_sqe_set_data(io_sqe, sqe);
-    io_uring_submit(queue); // TODO - Extract to separate function?
+    io_uring_submit(&queue); // TODO - Extract to separate function?
 }
 uint32_t eventq_dequeue(eventq queue, eventq_cqe* events, uint32_t count, uint32_t wait_time) {
-    io_uring_wait_cqe(queue, events); // TODO - multiple return and wait_time
-    return 1;
+    if (wait_time != UINT32_MAX) {
+        struct __kernel_timespec timeout;
+        timeout.tv_sec += (wait_time / 1000);
+        timeout.tv_nsec += ((wait_time % 1000) * 1000000);
+        return io_uring_wait_cqes(&queue, events, count, &timeout, 0);
+    }
+    return io_uring_wait_cqes(&queue, events, count, 0, 0);
 }
-uint32_t eventq_cqe_get_type(eventq_cqe* cqe) { return ((eventq_sqe*)cqe->user_data)->type; }
-void* eventq_cqe_get_user_data(eventq_cqe* cqe) { return ((eventq_sqe*)cqe->user_data)->user_data; }
-uint32_t eventq_cqe_get_status(eventq_cqe* cqe) { return ((eventq_sqe*)cqe->user_data)->status; }
+void eventq_return(eventq queue, eventq_cqe* cqe) {
+    io_uring_cqe_seen(&queue, *cqe);
+}
+uint32_t eventq_cqe_get_type(eventq_cqe* cqe) { return ((eventq_sqe*)io_uring_cqe_get_data(*cqe))->type; }
+void* eventq_cqe_get_user_data(eventq_cqe* cqe) { return ((eventq_sqe*)io_uring_cqe_get_data(*cqe))->user_data; }
+uint32_t eventq_cqe_get_status(eventq_cqe* cqe) { return ((eventq_sqe*)io_uring_cqe_get_data(*cqe))->status; }
 
 #else
 
