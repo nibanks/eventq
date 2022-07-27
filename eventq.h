@@ -169,7 +169,7 @@ typedef struct eventq_sqe {
 typedef struct kevent eventq_cqe;
 
 typedef struct platform_socket {
-    eventq_sqe;
+    eventq_sqe sqe;
     SOCKET fd;
     struct sockaddr recv_addr;
     int recv_addr_len;
@@ -195,7 +195,7 @@ bool eventq_socket_receive_start(eventq queue, platform_socket* sock) {
     return 0 <= kevent(queue, &event, 1, NULL, 0, NULL);
 }
 void eventq_socket_receive_complete(eventq_cqe* cqe) {
-    platform_socket* sock = (platform_socket*)cqe->data.ptr;
+    platform_socket* sock = (platform_socket*)cqe->udata;
     int result = recvfrom(sock->fd, sock->buffer, sizeof(sock->buffer), 0, &sock->recv_addr, &sock->recv_addr_len);
     printf("Receive complete, %d bytes\n", result);
 }
