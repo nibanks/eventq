@@ -62,7 +62,8 @@ jobs:
         name: psn
         path: eventq.exe
     - name: Run
-      run: ./eventq.exe
+      run: |
+        & .\eventq.exe
 
   kqueue:
     permissions:
