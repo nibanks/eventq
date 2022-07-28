@@ -200,7 +200,7 @@ typedef struct eventq_sqe {
 typedef struct io_uring_cqe* eventq_cqe;
 
 bool eventq_initialize(eventq* queue) {
-    return 0 == io_uring_queue_init(8, queue, 0);
+    return 0 == io_uring_queue_init(256, queue, 0);
 }
 void eventq_cleanup(eventq* queue) {
     io_uring_queue_exit(queue);
@@ -208,6 +208,7 @@ void eventq_cleanup(eventq* queue) {
 bool eventq_sqe_initialize(eventq* queue, eventq_sqe* sqe) { }
 void eventq_sqe_cleanup(eventq* queue, eventq_sqe* sqe) { }
 void eventq_enqueue(eventq* queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
+    //printf("eventq_enqueue %u\n", type);
     sqe->type = type;
     sqe->user_data = user_data;
     sqe->status = status;
@@ -221,13 +222,17 @@ void eventq_enqueue(eventq* queue, eventq_sqe* sqe, uint32_t type, void* user_da
     io_uring_submit(queue); // TODO - Extract to separate function?
 }
 uint32_t eventq_dequeue(eventq* queue, eventq_cqe* events, uint32_t count, uint32_t wait_time) {
+    int result;
     if (wait_time != UINT32_MAX) {
         struct __kernel_timespec timeout;
         timeout.tv_sec += (wait_time / 1000);
         timeout.tv_nsec += ((wait_time % 1000) * 1000000);
-        return io_uring_wait_cqes(queue, events, count, &timeout, 0);
+        result = io_uring_wait_cqe_timeout(queue, events, &timeout);
+    } else {
+        result = io_uring_wait_cqe(queue, events);
     }
-    return io_uring_wait_cqes(queue, events, count, 0, 0);
+    //printf("eventq_dequeue, %d\n", result);
+    return result == 0 ? 1 : 0;
 }
 void eventq_return(eventq* queue, eventq_cqe* cqe) {
     io_uring_cqe_seen(queue, *cqe);
