@@ -96,7 +96,8 @@ void eventq_sqe_cleanup(eventq* queue, eventq_sqe* sqe) { }
 bool eventq_socket_create(eventq* queue, platform_socket* sock) {
     sock->fd = WSASocketW(AF_INET, SOCK_DGRAM, IPPROTO_UDP, NULL, 0, WSA_FLAG_OVERLAPPED);
     if (sock->fd == (SOCKET)-1) return false;
-    if (*queue != CreateIoCompletionPort((HANDLE)sock->fd, *queue, (ULONG_PTR)sock, 0)) {
+    if (!SetFileCompletionNotificationModes((HANDLE)sock->fd, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS) ||
+        *queue != CreateIoCompletionPort((HANDLE)sock->fd, *queue, (ULONG_PTR)sock, 0)) {
         closesocket(sock->fd);
         return false;
     }
@@ -122,24 +123,20 @@ bool eventq_socket_receive_start(eventq* queue, platform_socket* sock) {
 void eventq_socket_receive_complete(eventq_cqe* cqe) {
     printf("Receive complete, %u bytes\n", cqe->dwNumberOfBytesTransferred);
 }
-bool eventq_socket_send_start(eventq* queue, platform_socket* sock) {
+void eventq_socket_send_start(eventq* queue, platform_socket* sock, uint32_t length) {
     sock->sqe.type = PLATFORM_EVENT_TYPE_SOCKET_SEND;
     sock->buf.buf = sock->buffer;
-    sock->buf.len = sizeof(sock->buffer) - 10;
+    sock->buf.len = length;
     ZeroMemory(&sock->sqe, sizeof(OVERLAPPED));
     printf("Sending %u bytes\n", sock->buf.len);
     int result = WSASend(sock->fd, &sock->buf, 1, NULL, 0, (OVERLAPPED*)&sock->sqe, NULL);
     if (result == SOCKET_ERROR) {
         if (WSAGetLastError() != WSA_IO_PENDING) {
             printf("WSASend failed with error: %d\n", WSAGetLastError());
-            return false;
         }
     }
-    return true;
 }
-void eventq_socket_send_complete(eventq_cqe* cqe) {
-    printf("Send complete\n");
-}
+void eventq_socket_send_complete(eventq_cqe* cqe) { }
 void eventq_enqueue(eventq* queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
     memset(sqe, 0, sizeof(*sqe));
     sqe->type = type;
@@ -200,12 +197,17 @@ void eventq_socket_receive_complete(eventq_cqe* cqe) {
     int result = recvfrom(sock->fd, sock->buffer, sizeof(sock->buffer), 0, &sock->recv_addr, &sock->recv_addr_len);
     printf("Receive complete, %d bytes\n", result);
 }
-bool eventq_socket_send_start(eventq* queue, platform_socket* sock) {
-    printf("Sending %u bytes\n", (uint32_t)sizeof(sock->buffer)-10);
-    return send(sock->fd, sock->buffer, sizeof(sock->buffer)-10, 0) != -1;
+void eventq_socket_send_start(eventq* queue, platform_socket* sock, uint32_t length) {
+    printf("Sending %u bytes\n", length);
+    if (send(sock->fd, sock->buffer, length, 0) < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            // Async
+        } else {
+            printf("send failed, %d\n", errno);
+        }
+    }
 }
-void eventq_socket_send_complete(eventq_cqe* cqe) {
-}
+void eventq_socket_send_complete(eventq_cqe* cqe) { }
 void eventq_enqueue(eventq* queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
     struct kevent event = {0};
     sqe->type = type;
@@ -289,12 +291,17 @@ void eventq_socket_receive_complete(eventq_cqe* cqe) {
     int result = recvfrom(sock->fd, sock->buffer, sizeof(sock->buffer), 0, &sock->recv_addr, &sock->recv_addr_len);
     printf("Receive complete, %d bytes\n", result);
 }
-bool eventq_socket_send_start(eventq* queue, platform_socket* sock) {
-    printf("Sending %u bytes\n", (uint32_t)sizeof(sock->buffer)-10);
-    return send(sock->fd, sock->buffer, sizeof(sock->buffer)-10, 0) != -1;
+void eventq_socket_send_start(eventq* queue, platform_socket* sock, uint32_t length) {
+    printf("Sending %u bytes\n", length);
+    if (send(sock->fd, sock->buffer, length, 0) < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            // Async
+        } else {
+            printf("send failed, %d\n", errno);
+        }
+    }
 }
-void eventq_socket_send_complete(eventq_cqe* cqe) {
-}
+void eventq_socket_send_complete(eventq_cqe* cqe) { }
 void eventq_enqueue(eventq* queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
     sqe->type = type;
     sqe->user_data = user_data;
@@ -356,11 +363,11 @@ void eventq_socket_receive_complete(eventq_cqe* cqe) {
     //platform_socket* sock = (platform_socket*)cqe->data.ptr;
     printf("Receive complete, %d bytes\n", (*cqe)->res);
 }
-bool eventq_socket_send_start(eventq* queue, platform_socket* sock) {
+void eventq_socket_send_start(eventq* queue, platform_socket* sock, uint32_t length) {
     sock->sqe.type = PLATFORM_EVENT_TYPE_SOCKET_SEND;
-    printf("Sending %u bytes\n", (uint32_t)sizeof(sock->buffer)-10);
+    printf("Sending %u bytes\n", length);
     struct io_uring_sqe *io_sqe = io_uring_get_sqe(queue);
-    io_uring_prep_send(io_sqe, sock->fd, sock->buffer, sizeof(sock->buffer)-10, 0);
+    io_uring_prep_send(io_sqe, sock->fd, sock->buffer, length, 0);
     io_uring_sqe_set_data(io_sqe, &sock->sqe);
     io_uring_submit(queue); // TODO - Extract to separate function?
 }
@@ -472,9 +479,6 @@ bool platform_socket_create_client(platform_socket* sock, eventq* queue) {
         platform_socket_close(sock->fd);
         return false;
     }
-    if (!eventq_socket_send_start(queue, sock)) {
-        platform_socket_close(sock->fd);
-        return false;
-    }
+    eventq_socket_send_start(queue, sock, 1);
     return true;
 }
