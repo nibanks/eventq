@@ -198,8 +198,7 @@ bool eventq_socket_create(eventq* queue, platform_socket* sock) {
     sock->send_sqe.user_data = sock;
 
     sock->fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (socket->fd == (SOCKET)-1) return false;
-    return (sock->fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) != (SOCKET)-1;
+    if (sock->fd == (SOCKET)-1) return false;
 
     int Flags = fcntl(sock->fd, F_GETFL, NULL);
     if (Flags < 0 || fcntl(sock->fd, F_SETFL, Flags | O_NONBLOCK) < 0) {
