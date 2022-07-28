@@ -204,7 +204,7 @@ bool eventq_socket_receive_start(eventq* queue, platform_socket* sock) {
     return 0 <= kevent(*queue, &event, 1, NULL, 0, NULL);
 }
 void eventq_socket_receive_complete(eventq* queue, eventq_cqe* cqe) {
-    platform_socket* sock = eventq_cqe_get_user_data(cqe);
+    platform_socket* sock = ((eventq_sqe*)cqe->udata)->user_data;
     int result;
     do {
         result = recvfrom(sock->fd, sock->buffer, sizeof(sock->buffer), 0, &sock->recv_addr, &sock->recv_addr_len);
@@ -220,7 +220,6 @@ void eventq_socket_send_start(eventq* queue, platform_socket* sock, uint32_t len
     printf("Sending %u bytes\n", length);
     if (send(sock->fd, sock->buffer, length, 0) < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            sock->sqe.type = PLATFORM_EVENT_TYPE_SOCKET_SEND;
             struct kevent event = {0};
             EV_SET(&event, sock->fd, EVFILT_WRITE, EV_ADD | EV_ONESHOT | EV_CLEAR, 0, 0, (void*)&sock->send_sqe);
             if (kevent(*queue, &event, 1, NULL, 0, NULL) < 0) {
