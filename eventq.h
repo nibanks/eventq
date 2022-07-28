@@ -71,7 +71,7 @@ void eventq_sqe_cleanup(eventq* queue, eventq_sqe* sqe) { }
 void eventq_enqueue(eventq* queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
     memset(sqe, 0, sizeof(*sqe));
     sqe->type = type;
-    PostQueuedCompletionStatus(queue, status, (ULONG_PTR)user_data, (OVERLAPPED*)sqe);
+    PostQueuedCompletionStatus(*queue, status, (ULONG_PTR)user_data, (OVERLAPPED*)sqe);
 }
 uint32_t eventq_dequeue(eventq* queue, eventq_cqe* events, uint32_t count, uint32_t wait_time) {
     uint32_t out_count;
