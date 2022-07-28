@@ -103,9 +103,9 @@ int CALL main(int argc, char **argv) {
     platform_sleep(1000);
     eventq_enqueue(&state1.queue, &state1.echo_sqe, APP_EVENT_TYPE_ECHO, NULL, 0);
 
-    eventq_enqueue(state1.queue, &state1.create_socket_sqe, APP_EVENT_TYPE_CREATE_SOCKET, NULL, 1);
+    eventq_enqueue(&state1.queue, &state1.create_socket_sqe, APP_EVENT_TYPE_CREATE_SOCKET, NULL, 1);
     platform_sleep(100);
-    eventq_enqueue(state2.queue, &state2.create_socket_sqe, APP_EVENT_TYPE_CREATE_SOCKET, NULL, 0);
+    eventq_enqueue(&state2.queue, &state2.create_socket_sqe, APP_EVENT_TYPE_CREATE_SOCKET, NULL, 0);
     platform_sleep(1000);
 
     stop_main_loop(&state1);

@@ -354,7 +354,7 @@ bool eventq_socket_receive_start(eventq* queue, platform_socket* sock) {
 }
 void eventq_socket_receive_complete(eventq_cqe* cqe) {
     //platform_socket* sock = (platform_socket*)cqe->data.ptr;
-    printf("Receive complete\n"); // TODO - Grab receive length
+    printf("Receive complete, %d bytes\n", (*cqe)->res);
 }
 bool eventq_socket_send_start(eventq* queue, platform_socket* sock) {
     sock->sqe.type = PLATFORM_EVENT_TYPE_SOCKET_SEND;
