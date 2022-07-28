@@ -164,6 +164,7 @@ uint32_t eventq_cqe_get_status(eventq_cqe* cqe) { return cqe->dwNumberOfBytesTra
 #include <sys/types.h>
 #include <sys/event.h>
 #include <sys/time.h>
+#include <fcntl.h>
 
 typedef int eventq;
 typedef struct eventq_sqe {
