@@ -37,7 +37,7 @@ PLATFORM_THREAD(main_loop, context) {
         } else {
             for (uint32_t i = 0; i < count; ++i) {
                 if (eventq_cqe_get_type(&events[i]) < APP_EVENT_TYPE_START) {
-                    platform_process_event(&events[i]);
+                    platform_process_event(&state->queue, &events[i]);
                 } else {
                     switch ((APP_EVENT_TYPE)eventq_cqe_get_type(&events[i])) {
                     case APP_EVENT_TYPE_SHUTDOWN:

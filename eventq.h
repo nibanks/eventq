@@ -76,7 +76,8 @@ typedef struct eventq_sqe {
 typedef OVERLAPPED_ENTRY eventq_cqe;
 
 typedef struct platform_socket {
-    eventq_sqe sqe;
+    eventq_sqe recv_sqe;
+    eventq_sqe send_sqe;
     SOCKET fd;
     WSABUF buf;
     struct sockaddr recv_addr;
@@ -94,6 +95,8 @@ void eventq_cleanup(eventq* queue) {
 bool eventq_sqe_initialize(eventq* queue, eventq_sqe* sqe) { return true; }
 void eventq_sqe_cleanup(eventq* queue, eventq_sqe* sqe) { }
 bool eventq_socket_create(eventq* queue, platform_socket* sock) {
+    sock->recv_sqe.type = PLATFORM_EVENT_TYPE_SOCKET_RECEIVE;
+    sock->send_sqe.type = PLATFORM_EVENT_TYPE_SOCKET_SEND;
     sock->fd = WSASocketW(AF_INET, SOCK_DGRAM, IPPROTO_UDP, NULL, 0, WSA_FLAG_OVERLAPPED);
     if (sock->fd == (SOCKET)-1) return false;
     if (!SetFileCompletionNotificationModes((HANDLE)sock->fd, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS) ||
@@ -104,39 +107,43 @@ bool eventq_socket_create(eventq* queue, platform_socket* sock) {
     return true;
 }
 bool eventq_socket_receive_start(eventq* queue, platform_socket* sock) {
-    sock->sqe.type = PLATFORM_EVENT_TYPE_SOCKET_RECEIVE;
-    sock->recv_addr_len = sizeof(sock->recv_addr);
-    sock->buf.buf = sock->buffer;
-    sock->buf.len = sizeof(sock->buffer);
-    ZeroMemory(&sock->sqe, sizeof(OVERLAPPED));
+    int result;
     DWORD bytesRecv = 0;
     DWORD flags = 0;
-    int result = WSARecvFrom(sock->fd, &sock->buf, 1, &bytesRecv, &flags, &sock->recv_addr, &sock->recv_addr_len, (OVERLAPPED*)&sock->sqe, NULL);
-    if (result == SOCKET_ERROR) {
-        if (WSAGetLastError() != WSA_IO_PENDING) {
-            printf("WSARecvFrom failed with error: %d\n", WSAGetLastError());
-            return false;
+    do {
+        sock->recv_addr_len = sizeof(sock->recv_addr);
+        sock->buf.buf = sock->buffer;
+        sock->buf.len = sizeof(sock->buffer);
+        ZeroMemory(&sock->recv_sqe, sizeof(OVERLAPPED));
+        result = WSARecvFrom(sock->fd, &sock->buf, 1, &bytesRecv, &flags, &sock->recv_addr, &sock->recv_addr_len, (OVERLAPPED*)&sock->recv_sqe, NULL);
+        if (result == SOCKET_ERROR) {
+            if (WSAGetLastError() != WSA_IO_PENDING) {
+                printf("WSARecvFrom failed with error: %d\n", WSAGetLastError());
+                return false;
+            }
+        } else {
+            printf("Receive complete, %u bytes\n", (uint32_t)bytesRecv);
         }
-    }
+    } while (result != SOCKET_ERROR);
     return true;
 }
-void eventq_socket_receive_complete(eventq_cqe* cqe) {
+void eventq_socket_receive_complete(eventq* queue, eventq_cqe* cqe) {
     printf("Receive complete, %u bytes\n", cqe->dwNumberOfBytesTransferred);
+    eventq_socket_receive_start(queue, (platform_socket*)cqe->lpOverlapped);
 }
 void eventq_socket_send_start(eventq* queue, platform_socket* sock, uint32_t length) {
-    sock->sqe.type = PLATFORM_EVENT_TYPE_SOCKET_SEND;
     sock->buf.buf = sock->buffer;
     sock->buf.len = length;
-    ZeroMemory(&sock->sqe, sizeof(OVERLAPPED));
+    ZeroMemory(&sock->send_sqe, sizeof(OVERLAPPED));
     printf("Sending %u bytes\n", sock->buf.len);
-    int result = WSASend(sock->fd, &sock->buf, 1, NULL, 0, (OVERLAPPED*)&sock->sqe, NULL);
+    int result = WSASend(sock->fd, &sock->buf, 1, NULL, 0, (OVERLAPPED*)&sock->send_sqe, NULL);
     if (result == SOCKET_ERROR) {
         if (WSAGetLastError() != WSA_IO_PENDING) {
             printf("WSASend failed with error: %d\n", WSAGetLastError());
         }
     }
 }
-void eventq_socket_send_complete(eventq_cqe* cqe) { }
+void eventq_socket_send_complete(eventq* queue, eventq_cqe* cqe) { }
 void eventq_enqueue(eventq* queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
     memset(sqe, 0, sizeof(*sqe));
     sqe->type = type;
@@ -167,7 +174,8 @@ typedef struct eventq_sqe {
 typedef struct kevent eventq_cqe;
 
 typedef struct platform_socket {
-    eventq_sqe sqe;
+    eventq_sqe recv_sqe;
+    eventq_sqe send_sqe;
     SOCKET fd;
     struct sockaddr recv_addr;
     socklen_t recv_addr_len;
@@ -184,30 +192,46 @@ void eventq_cleanup(eventq* queue) {
 bool eventq_sqe_initialize(eventq* queue, eventq_sqe* sqe) { return true; }
 void eventq_sqe_cleanup(eventq* queue, eventq_sqe* sqe) { }
 bool eventq_socket_create(eventq* queue, platform_socket* sock) {
+    sock->recv_sqe.type = PLATFORM_EVENT_TYPE_SOCKET_RECEIVE;
+    sock->recv_sqe.user_data = sock;
+    sock->send_sqe.type = PLATFORM_EVENT_TYPE_SOCKET_SEND;
+    sock->send_sqe.user_data = sock;
     return (sock->fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) != (SOCKET)-1;
 }
 bool eventq_socket_receive_start(eventq* queue, platform_socket* sock) {
-    sock->sqe.type = PLATFORM_EVENT_TYPE_SOCKET_RECEIVE;
     struct kevent event = {0};
-    EV_SET(&event, sock->fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, (void*)sock);
+    EV_SET(&event, sock->fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, (void*)&sock->recv_sqe);
     return 0 <= kevent(*queue, &event, 1, NULL, 0, NULL);
 }
-void eventq_socket_receive_complete(eventq_cqe* cqe) {
-    platform_socket* sock = (platform_socket*)cqe->udata;
-    int result = recvfrom(sock->fd, sock->buffer, sizeof(sock->buffer), 0, &sock->recv_addr, &sock->recv_addr_len);
-    printf("Receive complete, %d bytes\n", result);
+void eventq_socket_receive_complete(eventq* queue, eventq_cqe* cqe) {
+    platform_socket* sock = eventq_cqe_get_user_data(cqe);
+    int result;
+    do {
+        result = recvfrom(sock->fd, sock->buffer, sizeof(sock->buffer), 0, &sock->recv_addr, &sock->recv_addr_len);
+        if (result <= 0) {
+            if (errno != EAGAIN && errno != EWOULDBLOCK)
+                printf("recvfrom failed, %d\n", errno);
+            break;
+        }
+        printf("Receive complete, %d bytes\n", result);
+    } while (true);
 }
 void eventq_socket_send_start(eventq* queue, platform_socket* sock, uint32_t length) {
     printf("Sending %u bytes\n", length);
     if (send(sock->fd, sock->buffer, length, 0) < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            // Async
+            sock->sqe.type = PLATFORM_EVENT_TYPE_SOCKET_SEND;
+            struct kevent event = {0};
+            EV_SET(&event, sock->fd, EVFILT_WRITE, EV_ADD | EV_ONESHOT | EV_CLEAR, 0, 0, (void*)&sock->send_sqe);
+            if (kevent(*queue, &event, 1, NULL, 0, NULL) < 0) {
+                printf("kevent(send) failed, %d\n", errno);
+            }
         } else {
             printf("send failed, %d\n", errno);
         }
     }
 }
-void eventq_socket_send_complete(eventq_cqe* cqe) { }
+void eventq_socket_send_complete(eventq* queue, eventq_cqe* cqe) { }
 void eventq_enqueue(eventq* queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
     struct kevent event = {0};
     sqe->type = type;
@@ -250,7 +274,8 @@ typedef struct eventq_sqe {
 typedef struct epoll_event eventq_cqe;
 
 typedef struct platform_socket {
-    eventq_sqe sqe;
+    eventq_sqe recv_sqe;
+    eventq_sqe send_sqe;
     SOCKET fd;
     struct sockaddr recv_addr;
     int recv_addr_len;
@@ -279,29 +304,46 @@ void eventq_sqe_cleanup(eventq* queue, eventq_sqe* sqe) {
     close(sqe->fd);
 }
 bool eventq_socket_create(eventq* queue, platform_socket* sock) {
-    return (sock->fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) != (SOCKET)-1;
+    sock->recv_sqe.type = PLATFORM_EVENT_TYPE_SOCKET_RECEIVE;
+    sock->recv_sqe.user_data = sock;
+    sock->send_sqe.type = PLATFORM_EVENT_TYPE_SOCKET_SEND;
+    sock->send_sqe.user_data = sock;
+    return (sock->fd = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, IPPROTO_UDP)) != (SOCKET)-1;
 }
 bool eventq_socket_receive_start(eventq* queue, platform_socket* sock) {
-    sock->sqe.type = PLATFORM_EVENT_TYPE_SOCKET_RECEIVE;
-    struct epoll_event event = { .events = EPOLLIN | EPOLLET, .data = { .ptr = sock } };
+    struct epoll_event event = { .events = EPOLLIN, .data = { .ptr = &sock->recv_sqe } };
     return 0 == epoll_ctl(*queue, EPOLL_CTL_ADD, sock->fd, &event);
 }
-void eventq_socket_receive_complete(eventq_cqe* cqe) {
+void eventq_socket_receive_complete(eventq* queue, eventq_cqe* cqe) {
     platform_socket* sock = (platform_socket*)cqe->data.ptr;
-    int result = recvfrom(sock->fd, sock->buffer, sizeof(sock->buffer), 0, &sock->recv_addr, &sock->recv_addr_len);
-    printf("Receive complete, %d bytes\n", result);
+    int result;
+    do {
+        result = recvfrom(sock->fd, sock->buffer, sizeof(sock->buffer), 0, &sock->recv_addr, &sock->recv_addr_len);
+        if (result <= 0) {
+            if (errno != EAGAIN && errno != EWOULDBLOCK)
+                printf("recvfrom failed, %d\n", errno);
+            break;
+        }
+        printf("Receive complete, %d bytes\n", result);
+    } while (true);
 }
 void eventq_socket_send_start(eventq* queue, platform_socket* sock, uint32_t length) {
     printf("Sending %u bytes\n", length);
     if (send(sock->fd, sock->buffer, length, 0) < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            // Async
+            // TODO - Need to queue the send if we support multiple
+            struct epoll_event event = { .events = EPOLLIN | EPOLLOUT, .data = { .ptr = &sock->send_sqe } };
+            if (0 != epoll_ctl(*queue, EPOLL_CTL_ADD, sock->fd, &event)) {
+                printf("epoll_ctl (send) failed\n");
+            }
         } else {
             printf("send failed, %d\n", errno);
         }
     }
 }
-void eventq_socket_send_complete(eventq_cqe* cqe) { }
+void eventq_socket_send_complete(eventq* queue, eventq_cqe* cqe) {
+    // TODO - Send queued sends
+}
 void eventq_enqueue(eventq* queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
     sqe->type = type;
     sqe->user_data = user_data;
@@ -359,9 +401,9 @@ bool eventq_socket_receive_start(eventq* queue, platform_socket* sock) {
     io_uring_sqe_set_data(io_sqe, &sock->sqe);
     io_uring_submit(queue); // TODO - Extract to separate function?
 }
-void eventq_socket_receive_complete(eventq_cqe* cqe) {
-    //platform_socket* sock = (platform_socket*)cqe->data.ptr;
+void eventq_socket_receive_complete(eventq* queue, eventq_cqe* cqe) {
     printf("Receive complete, %d bytes\n", (*cqe)->res);
+    eventq_socket_receive_start(queue, (platform_socket*)(*cqe)->user_data);
 }
 void eventq_socket_send_start(eventq* queue, platform_socket* sock, uint32_t length) {
     sock->sqe.type = PLATFORM_EVENT_TYPE_SOCKET_SEND;
@@ -371,8 +413,7 @@ void eventq_socket_send_start(eventq* queue, platform_socket* sock, uint32_t len
     io_uring_sqe_set_data(io_sqe, &sock->sqe);
     io_uring_submit(queue); // TODO - Extract to separate function?
 }
-void eventq_socket_send_complete(eventq_cqe* cqe) {
-}
+void eventq_socket_send_complete(eventq* queue, eventq_cqe* cqe) { }
 void eventq_enqueue(eventq* queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
     sqe->type = type;
     sqe->user_data = user_data;
@@ -422,13 +463,13 @@ uint32_t eventq_cqe_get_status(eventq_cqe* cqe) { return ((eventq_sqe*)io_uring_
 uint32_t platform_wait_time = UINT32_MAX;
 uint32_t platform_get_wait_time(void) { return platform_wait_time; }
 void platform_process_timeout(void) { printf("Timeout\n"); platform_wait_time = UINT32_MAX; }
-void platform_process_event(eventq_cqe* cqe) {
+void platform_process_event(eventq* queue, eventq_cqe* cqe) {
     switch (eventq_cqe_get_type(cqe)) {
     case PLATFORM_EVENT_TYPE_SOCKET_RECEIVE:
-        eventq_socket_receive_complete(cqe);
+        eventq_socket_receive_complete(queue, cqe);
         break;
     case PLATFORM_EVENT_TYPE_SOCKET_SEND:
-        eventq_socket_send_complete(cqe);
+        eventq_socket_send_complete(queue, cqe);
         break;
     default:
         printf("Unexpected Event %u\n", eventq_cqe_get_type(cqe));
@@ -479,6 +520,7 @@ bool platform_socket_create_client(platform_socket* sock, eventq* queue) {
         platform_socket_close(sock->fd);
         return false;
     }
-    eventq_socket_send_start(queue, sock, 1);
+    for (uint32_t i = 0; i < 10; ++i)
+        eventq_socket_send_start(queue, sock, 1);
     return true;
 }
