@@ -196,7 +196,17 @@ bool eventq_socket_create(eventq* queue, platform_socket* sock) {
     sock->recv_sqe.user_data = sock;
     sock->send_sqe.type = PLATFORM_EVENT_TYPE_SOCKET_SEND;
     sock->send_sqe.user_data = sock;
+
+    sock->fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (socket->fd == (SOCKET)-1) return false;
     return (sock->fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) != (SOCKET)-1;
+
+    int Flags = fcntl(sock->fd, F_GETFL, NULL);
+    if (Flags < 0 || fcntl(sock->fd, F_SETFL, Flags | O_NONBLOCK) < 0) {
+        close(sock->fd);
+        return false;
+    }
+    return true;
 }
 bool eventq_socket_receive_start(eventq* queue, platform_socket* sock) {
     struct kevent event = {0};
