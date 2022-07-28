@@ -198,27 +198,36 @@ bool eventq_socket_create(eventq* queue, platform_socket* sock) {
     return true;
 }
 bool eventq_socket_receive_start(eventq* queue, platform_socket* sock) {
-    SOCK_NOTIFY_REGISTRATION registration;
+    SOCK_NOTIFY_REGISTRATION registration = {0};
     registration.completionKey = &sock->recv_sqe;
-    registration.eventFilter = SOCK_NOTIFY_REGISTER_EVENT_IN;
+    registration.eventFilter = SOCK_NOTIFY_EVENT_IN;
     registration.operation = SOCK_NOTIFY_OP_ENABLE;
-    registration.triggerFlags = SOCK_NOTIFY_TRIGGER_EDGE;
+    registration.triggerFlags = SOCK_NOTIFY_TRIGGER_EDGE | SOCK_NOTIFY_TRIGGER_PERSISTENT;
     registration.socket = sock->fd;
-    return ProcessSocketNotifications(*queue, 1, &registration, 0, 0, NULL, NULL) == ERROR_SUCCESS &&
-        registration.registrationResult != ERROR_SUCCESS;
+    uint32_t Result = ProcessSocketNotifications(*queue, 1, &registration, 0, 0, NULL, NULL);
+    if (Result != ERROR_SUCCESS) {
+        printf("ProcessSocketNotifications failed with error: %d\n", Result);
+        return false;
+    }
+    if (registration.registrationResult != ERROR_SUCCESS) {
+        printf("ProcessSocketNotifications failed with error: %d\n", registration.registrationResult);
+        return false;
+    }
+    return true;
 }
 void eventq_socket_receive_complete(eventq* queue, eventq_cqe* cqe) {
-    platform_socket* sock = (platform_socket*)cqe->lpCompletionKey;
-    DWORD bytesRecv = 0;
-    DWORD flags = 0;
-    sock->recv_addr_len = sizeof(sock->recv_addr);
-    ZeroMemory(&sock->recv_sqe, sizeof(OVERLAPPED));
-    int result = recvfrom(sock->fd, sock->buffer, sizeof(sock->buffer), 0, &sock->recv_addr, &sock->recv_addr_len);
-    if (result < 0) {
-        printf("WSARecvFrom failed with error: %d\n", WSAGetLastError());
-    } else {
-        printf("Receive complete, %u bytes\n", (uint32_t)bytesRecv);
-    }
+    platform_socket* sock = ((eventq_sqe*)cqe->lpCompletionKey)->user_data;
+    int result;
+    do {
+        sock->recv_addr_len = sizeof(sock->recv_addr);
+        result = recvfrom(sock->fd, sock->buffer, sizeof(sock->buffer), 0, &sock->recv_addr, &sock->recv_addr_len);
+        if (result <= 0) {
+            if (WSAGetLastError() != WSAEWOULDBLOCK)
+                printf("recvfrom failed, %d\n", WSAGetLastError());
+            break;
+        }
+        printf("Receive complete, %d bytes\n", result);
+    } while (true);
 }
 void eventq_socket_send_start(eventq* queue, platform_socket* sock, uint32_t length) {
     printf("Sending %u bytes\n", length);
@@ -237,7 +246,6 @@ void eventq_enqueue(eventq* queue, eventq_sqe* sqe, uint32_t type, void* user_da
 uint32_t eventq_dequeue(eventq* queue, eventq_cqe* events, uint32_t count, uint32_t wait_time) {
     uint32_t out_count;
     GetQueuedCompletionStatusEx(*queue, events, count, &out_count, wait_time, FALSE); // TODO - How to handle errors?
-    printf("Dequeued %u events\n", out_count);
     return out_count;
 }
 void eventq_return(eventq* queue, eventq_cqe* cqe) { }
@@ -301,6 +309,7 @@ void eventq_socket_receive_complete(eventq* queue, eventq_cqe* cqe) {
     platform_socket* sock = ((eventq_sqe*)cqe->udata)->user_data;
     int result;
     do {
+        sock->recv_addr_len = sizeof(sock->recv_addr);
         result = recvfrom(sock->fd, sock->buffer, sizeof(sock->buffer), 0, &sock->recv_addr, &sock->recv_addr_len);
         if (result <= 0) {
             if (errno != EAGAIN && errno != EWOULDBLOCK)
@@ -414,6 +423,7 @@ void eventq_socket_receive_complete(eventq* queue, eventq_cqe* cqe) {
     platform_socket* sock = (platform_socket*)cqe->data.ptr;
     int result;
     do {
+        sock->recv_addr_len = sizeof(sock->recv_addr);
         result = recvfrom(sock->fd, sock->buffer, sizeof(sock->buffer), 0, &sock->recv_addr, &sock->recv_addr_len);
         if (result <= 0) {
             if (errno != EAGAIN && errno != EWOULDBLOCK)
@@ -625,7 +635,7 @@ bool platform_socket_create_client(platform_socket* sock, eventq* queue) {
         platform_socket_close(sock->fd);
         return false;
     }
-    for (uint32_t i = 0; i < 1; ++i)
+    for (uint32_t i = 0; i < 50; ++i)
         eventq_socket_send_start(queue, sock, 1);
     return true;
 }
