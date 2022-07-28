@@ -197,10 +197,8 @@ bool eventq_socket_create(eventq* queue, platform_socket* sock) {
     sock->recv_sqe.user_data = sock;
     sock->send_sqe.type = PLATFORM_EVENT_TYPE_SOCKET_SEND;
     sock->send_sqe.user_data = sock;
-
     sock->fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (sock->fd == (SOCKET)-1) return false;
-
     int Flags = fcntl(sock->fd, F_GETFL, NULL);
     if (Flags < 0 || fcntl(sock->fd, F_SETFL, Flags | O_NONBLOCK) < 0) {
         close(sock->fd);
@@ -230,6 +228,7 @@ void eventq_socket_send_start(eventq* queue, platform_socket* sock, uint32_t len
     printf("Sending %u bytes\n", length);
     if (send(sock->fd, sock->buffer, length, 0) < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            // TODO - Need to queue the send if we support multiple
             struct kevent event = {0};
             EV_SET(&event, sock->fd, EVFILT_WRITE, EV_ADD | EV_ONESHOT | EV_CLEAR, 0, 0, (void*)&sock->send_sqe);
             if (kevent(*queue, &event, 1, NULL, 0, NULL) < 0) {
@@ -240,7 +239,9 @@ void eventq_socket_send_start(eventq* queue, platform_socket* sock, uint32_t len
         }
     }
 }
-void eventq_socket_send_complete(eventq* queue, eventq_cqe* cqe) { }
+void eventq_socket_send_complete(eventq* queue, eventq_cqe* cqe) {
+    // TODO - Send queued sends
+}
 void eventq_enqueue(eventq* queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
     struct kevent event = {0};
     sqe->type = type;
