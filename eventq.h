@@ -208,7 +208,6 @@ void eventq_cleanup(eventq* queue) {
 bool eventq_sqe_initialize(eventq* queue, eventq_sqe* sqe) { }
 void eventq_sqe_cleanup(eventq* queue, eventq_sqe* sqe) { }
 void eventq_enqueue(eventq* queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
-    //printf("eventq_enqueue %u\n", type);
     sqe->type = type;
     sqe->user_data = user_data;
     sqe->status = status;
@@ -225,13 +224,12 @@ uint32_t eventq_dequeue(eventq* queue, eventq_cqe* events, uint32_t count, uint3
     int result;
     if (wait_time != UINT32_MAX) {
         struct __kernel_timespec timeout;
-        timeout.tv_sec += (wait_time / 1000);
-        timeout.tv_nsec += ((wait_time % 1000) * 1000000);
+        timeout.tv_sec = (wait_time / 1000);
+        timeout.tv_nsec = ((wait_time % 1000) * 1000000);
         result = io_uring_wait_cqe_timeout(queue, events, &timeout);
     } else {
         result = io_uring_wait_cqe(queue, events);
     }
-    //printf("eventq_dequeue, %d\n", result);
     return result == 0 ? 1 : 0;
 }
 void eventq_return(eventq* queue, eventq_cqe* cqe) {
