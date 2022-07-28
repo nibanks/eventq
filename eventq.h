@@ -35,7 +35,31 @@ void platform_thread_destroy(platform_thread thread) {
     WaitForSingleObject(thread, INFINITE);
     CloseHandle(thread);
 }
-void platform_sockets_init(void) { WSADATA WsaData; WSAStartup(MAKEWORD(2, 2), &WsaData); }
+#if EC_PSN
+#include <stdlib.h>
+typedef DWORD (WSAAPI *PPROCESS_SOCKET_NOTIFICATIONS_ROUTINE)(
+    HANDLE                   completionPort,
+    UINT32                   registrationCount,
+    SOCK_NOTIFY_REGISTRATION *registrationInfos,
+    UINT32                   timeoutMs,
+    ULONG                    completionCount,
+    OVERLAPPED_ENTRY         *completionPortEntries,
+    UINT32                   *receivedEntryCount
+    );
+HANDLE hws2_32 = NULL;
+PPROCESS_SOCKET_NOTIFICATIONS_ROUTINE fn_ProcessSocketNotifications = NULL;
+#endif
+void platform_sockets_init(void) {
+#if EC_PSN
+    hws2_32 = LoadLibrary("Ws2_32.dll");
+    fn_ProcessSocketNotifications = (PPROCESS_SOCKET_NOTIFICATIONS_ROUTINE)GetProcAddress(hws2_32, "ProcessSocketNotifications");
+    if (fn_ProcessSocketNotifications == NULL) {
+        printf("ProcessSocketNotifications not available!\n");
+        exit(0);
+    }
+#endif
+    WSADATA WsaData; WSAStartup(MAKEWORD(2, 2), &WsaData);
+}
 int platform_socket_close(SOCKET s) { return closesocket(s); }
 #else // !_WIN32
 #include <pthread.h>
@@ -159,6 +183,100 @@ uint32_t eventq_cqe_get_type(eventq_cqe* cqe) { return ((eventq_sqe*)cqe->lpOver
 void* eventq_cqe_get_user_data(eventq_cqe* cqe) { return (void*)cqe->lpCompletionKey; }
 uint32_t eventq_cqe_get_status(eventq_cqe* cqe) { return cqe->dwNumberOfBytesTransferred; }
 
+#elif EC_PSN
+
+typedef HANDLE eventq;
+typedef struct eventq_sqe {
+    uint32_t type;
+    void* user_data;
+} eventq_sqe;
+typedef OVERLAPPED_ENTRY eventq_cqe;
+
+typedef struct platform_socket {
+    eventq_sqe recv_sqe;
+    SOCKET fd;
+    struct sockaddr recv_addr;
+    int recv_addr_len;
+    uint8_t buffer[1500];
+} platform_socket;
+
+bool eventq_initialize(eventq* queue) {
+    *queue = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 1);
+    return *queue != NULL;
+}
+void eventq_cleanup(eventq* queue) {
+    CloseHandle(*queue);
+}
+bool eventq_sqe_initialize(eventq* queue, eventq_sqe* sqe) { return true; }
+void eventq_sqe_cleanup(eventq* queue, eventq_sqe* sqe) { }
+bool eventq_socket_create(eventq* queue, platform_socket* sock) {
+    sock->recv_sqe.type = PLATFORM_EVENT_TYPE_SOCKET_RECEIVE;
+    sock->recv_sqe.user_data = sock;
+    sock->fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (sock->fd == (SOCKET)-1) return false;
+    uint32_t nonBlocking = 1;
+    if (ioctlsocket(sock->fd, FIONBIO, &nonBlocking) != 0) {
+        closesocket(sock->fd);
+        return false;
+    }
+    return true;
+}
+bool eventq_socket_receive_start(eventq* queue, platform_socket* sock) {
+    SOCK_NOTIFY_REGISTRATION registration = {0};
+    registration.completionKey = &sock->recv_sqe;
+    registration.eventFilter = SOCK_NOTIFY_EVENT_IN;
+    registration.operation = SOCK_NOTIFY_OP_ENABLE;
+    registration.triggerFlags = SOCK_NOTIFY_TRIGGER_EDGE | SOCK_NOTIFY_TRIGGER_PERSISTENT;
+    registration.socket = sock->fd;
+    uint32_t Result = fn_ProcessSocketNotifications(*queue, 1, &registration, 0, 0, NULL, NULL);
+    if (Result != ERROR_SUCCESS) {
+        printf("ProcessSocketNotifications failed with error: %d\n", Result);
+        return false;
+    }
+    if (registration.registrationResult != ERROR_SUCCESS) {
+        printf("ProcessSocketNotifications failed with error: %d\n", registration.registrationResult);
+        return false;
+    }
+    return true;
+}
+void eventq_socket_receive_complete(eventq* queue, eventq_cqe* cqe) {
+    platform_socket* sock = ((eventq_sqe*)cqe->lpCompletionKey)->user_data;
+    int result;
+    do {
+        sock->recv_addr_len = sizeof(sock->recv_addr);
+        result = recvfrom(sock->fd, sock->buffer, sizeof(sock->buffer), 0, &sock->recv_addr, &sock->recv_addr_len);
+        if (result <= 0) {
+            if (WSAGetLastError() != WSAEWOULDBLOCK)
+                printf("recvfrom failed, %d\n", WSAGetLastError());
+            break;
+        }
+        printf("Receive complete, %d bytes\n", result);
+    } while (true);
+}
+void eventq_socket_send_start(eventq* queue, platform_socket* sock, uint32_t length) {
+    printf("Sending %u bytes\n", length);
+    int result = send(sock->fd, sock->buffer, length, 0);
+    if (result == SOCKET_ERROR) {
+        printf("send failed with error: %d\n", WSAGetLastError());
+    }
+}
+void eventq_socket_send_complete(eventq* queue, eventq_cqe* cqe) { }
+void eventq_enqueue(eventq* queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
+    memset(sqe, 0, sizeof(*sqe));
+    sqe->type = type;
+    sqe->user_data = user_data;
+    PostQueuedCompletionStatus(*queue, status, (ULONG_PTR)sqe, (OVERLAPPED*)sqe);
+}
+uint32_t eventq_dequeue(eventq* queue, eventq_cqe* events, uint32_t count, uint32_t wait_time) {
+    uint32_t out_count;
+    GetQueuedCompletionStatusEx(*queue, events, count, &out_count, wait_time, FALSE); // TODO - How to handle errors?
+    return out_count;
+}
+void eventq_return(eventq* queue, eventq_cqe* cqe) { }
+uint32_t eventq_cqe_get_type(eventq_cqe* cqe) { return ((eventq_sqe*)cqe->lpCompletionKey)->type; }
+void* eventq_cqe_get_user_data(eventq_cqe* cqe) { return ((eventq_sqe*)cqe->lpCompletionKey)->user_data; }
+uint32_t eventq_cqe_get_status(eventq_cqe* cqe) { return cqe->dwNumberOfBytesTransferred; }
+
 #elif EC_KQUEUE
 
 #include <sys/types.h>
@@ -215,6 +333,7 @@ void eventq_socket_receive_complete(eventq* queue, eventq_cqe* cqe) {
     platform_socket* sock = ((eventq_sqe*)cqe->udata)->user_data;
     int result;
     do {
+        sock->recv_addr_len = sizeof(sock->recv_addr);
         result = recvfrom(sock->fd, sock->buffer, sizeof(sock->buffer), 0, &sock->recv_addr, &sock->recv_addr_len);
         if (result <= 0) {
             if (errno != EAGAIN && errno != EWOULDBLOCK)
@@ -328,6 +447,7 @@ void eventq_socket_receive_complete(eventq* queue, eventq_cqe* cqe) {
     platform_socket* sock = (platform_socket*)cqe->data.ptr;
     int result;
     do {
+        sock->recv_addr_len = sizeof(sock->recv_addr);
         result = recvfrom(sock->fd, sock->buffer, sizeof(sock->buffer), 0, &sock->recv_addr, &sock->recv_addr_len);
         if (result <= 0) {
             if (errno != EAGAIN && errno != EWOULDBLOCK)
