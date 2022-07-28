@@ -42,10 +42,9 @@ jobs:
     - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741
       with:
         name: iocp
-        path: eventq.exe
+        path: build
     - name: Run
-      shell: cmd
-      run: dir && eventq.exe
+      run: dir && .\build\eventq.exe
 
   psn:
     permissions:
@@ -80,10 +79,9 @@ jobs:
     - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741
       with:
         name: psn
-        path: eventq.exe
+        path: build
     - name: Run
-      shell: cmd
-      run: dir && eventq.exe
+      run: dir && .\build\eventq.exe
 
   kqueue:
     permissions:
