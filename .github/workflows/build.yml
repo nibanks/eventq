@@ -44,7 +44,7 @@ jobs:
     - name: Upload
       uses: actions/upload-artifact@3cea5372237819ed00197afe530f5a7ea3e805c8
       with:
-        name: bin
+        name: psn
         path: build/Debug/eventq.exe
     - name: Run
       run: |
@@ -59,10 +59,10 @@ jobs:
     steps:
     - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741
       with:
-        name: bin
+        name: psn
         path: eventq.exe
     - name: Run
-      run: eventq.exe
+      run: ./eventq.exe
 
   kqueue:
     permissions:
