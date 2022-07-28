@@ -63,7 +63,9 @@ jobs:
         path: eventq.exe
     - name: Run
       run: |
-        & .\eventq.exe
+        dir
+        & 'D:/a/eventq/eventq/eventq.exe'
+        & '.\eventq.exe'
 
   kqueue:
     permissions:
