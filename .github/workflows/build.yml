@@ -23,9 +23,29 @@ jobs:
         cmake -G 'Visual Studio 17 2022' -A x64 ..
         cmake --build .
         cmake --install . --config Debug
+    - name: Upload
+      uses: actions/upload-artifact@3cea5372237819ed00197afe530f5a7ea3e805c8
+      with:
+        name: iocp
+        path: build/Debug/eventq.exe
     - name: Run
       run: |
         & 'C:/Program Files/eventq/lib/eventq'
+
+  iocp-2019:
+    permissions:
+      contents: read
+    name: IOCP-2019
+    runs-on: windows-2019
+    needs: iocp
+    steps:
+    - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741
+      with:
+        name: iocp
+        path: eventq.exe
+    - name: Run
+      shell: cmd
+      run: dir && eventq.exe
 
   psn:
     permissions:
