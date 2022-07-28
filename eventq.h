@@ -35,7 +35,31 @@ void platform_thread_destroy(platform_thread thread) {
     WaitForSingleObject(thread, INFINITE);
     CloseHandle(thread);
 }
-void platform_sockets_init(void) { WSADATA WsaData; WSAStartup(MAKEWORD(2, 2), &WsaData); }
+#if EC_PSN
+#include <stdlib.h>
+typedef DWORD (WSAAPI *PPROCESS_SOCKET_NOTIFICATIONS_ROUTINE)(
+    HANDLE                   completionPort,
+    UINT32                   registrationCount,
+    SOCK_NOTIFY_REGISTRATION *registrationInfos,
+    UINT32                   timeoutMs,
+    ULONG                    completionCount,
+    OVERLAPPED_ENTRY         *completionPortEntries,
+    UINT32                   *receivedEntryCount
+    );
+HANDLE hws2_32 = NULL;
+PPROCESS_SOCKET_NOTIFICATIONS_ROUTINE fn_ProcessSocketNotifications = NULL;
+#endif
+void platform_sockets_init(void) {
+#if EC_PSN
+    hws2_32 = LoadLibrary("Ws2_32.dll");
+    fn_ProcessSocketNotifications = (PPROCESS_SOCKET_NOTIFICATIONS_ROUTINE)GetProcAddress(hws2_32, "ProcessSocketNotifications");
+    if (fn_ProcessSocketNotifications == NULL) {
+        printf("ProcessSocketNotifications not available!\n");
+        exit(1);
+    }
+#endif
+    WSADATA WsaData; WSAStartup(MAKEWORD(2, 2), &WsaData);
+}
 int platform_socket_close(SOCKET s) { return closesocket(s); }
 #else // !_WIN32
 #include <pthread.h>
@@ -204,7 +228,7 @@ bool eventq_socket_receive_start(eventq* queue, platform_socket* sock) {
     registration.operation = SOCK_NOTIFY_OP_ENABLE;
     registration.triggerFlags = SOCK_NOTIFY_TRIGGER_EDGE | SOCK_NOTIFY_TRIGGER_PERSISTENT;
     registration.socket = sock->fd;
-    uint32_t Result = ProcessSocketNotifications(*queue, 1, &registration, 0, 0, NULL, NULL);
+    uint32_t Result = fn_ProcessSocketNotifications(*queue, 1, &registration, 0, 0, NULL, NULL);
     if (Result != ERROR_SUCCESS) {
         printf("ProcessSocketNotifications failed with error: %d\n", Result);
         return false;
