@@ -93,10 +93,10 @@ void eventq_cleanup(eventq* queue) {
 }
 bool eventq_sqe_initialize(eventq* queue, eventq_sqe* sqe) { return true; }
 void eventq_sqe_cleanup(eventq* queue, eventq_sqe* sqe) { }
-bool eventq_socket_create(eventq queue, platform_socket* sock) {
+bool eventq_socket_create(eventq* queue, platform_socket* sock) {
     sock->fd = WSASocketW(AF_INET, SOCK_DGRAM, IPPROTO_UDP, NULL, 0, WSA_FLAG_OVERLAPPED);
     if (sock->fd == (SOCKET)-1) return false;
-    if (queue != CreateIoCompletionPort((HANDLE)sock->fd, queue, (ULONG_PTR)sock, 0)) {
+    if (*queue != CreateIoCompletionPort((HANDLE)sock->fd, *queue, (ULONG_PTR)sock, 0)) {
         closesocket(sock->fd);
         return false;
     }
