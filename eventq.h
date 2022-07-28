@@ -55,7 +55,7 @@ void platform_sockets_init(void) {
     fn_ProcessSocketNotifications = (PPROCESS_SOCKET_NOTIFICATIONS_ROUTINE)GetProcAddress(hws2_32, "ProcessSocketNotifications");
     if (fn_ProcessSocketNotifications == NULL) {
         printf("ProcessSocketNotifications not available!\n");
-        exit(1);
+        exit(0);
     }
 #endif
     WSADATA WsaData; WSAStartup(MAKEWORD(2, 2), &WsaData);

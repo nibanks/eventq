@@ -44,7 +44,7 @@ jobs:
         name: iocp
         path: build
     - name: Run
-      run: dir && .\build\eventq.exe
+      run: .\build\eventq.exe
 
   psn:
     permissions:
@@ -81,7 +81,7 @@ jobs:
         name: psn
         path: build
     - name: Run
-      run: dir && .\build\eventq.exe
+      run: .\build\eventq.exe
 
   kqueue:
     permissions:
@@ -98,6 +98,11 @@ jobs:
         cmake -G 'Unix Makefiles' ..
         cmake --build .
         cmake --install .
+    - name: Upload
+      uses: actions/upload-artifact@3cea5372237819ed00197afe530f5a7ea3e805c8
+      with:
+        name: kqueue
+        path: build/eventq
     - name: Run
       run: /usr/local/lib/eventq
 
@@ -116,6 +121,11 @@ jobs:
         cmake -G 'Unix Makefiles' ..
         cmake --build .
         sudo cmake --install .
+    - name: Upload
+      uses: actions/upload-artifact@3cea5372237819ed00197afe530f5a7ea3e805c8
+      with:
+        name: epoll
+        path: build/eventq
     - name: Run
       run: /usr/local/lib/eventq
 
@@ -136,5 +146,10 @@ jobs:
         cmake -G 'Unix Makefiles' -DUSE_IO_URING=on ..
         cmake --build .
         sudo cmake --install .
+    - name: Upload
+      uses: actions/upload-artifact@3cea5372237819ed00197afe530f5a7ea3e805c8
+      with:
+        name: iouring
+        path: build/eventq
     - name: Run
       run: /usr/local/lib/eventq
