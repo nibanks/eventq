@@ -13,6 +13,7 @@ typedef struct app_state {
     eventq_sqe echo_sqe;
     eventq_sqe timer_sqe;
     eventq_sqe create_socket_sqe;
+    platform_socket app_socket;
     platform_thread thread;
 } app_state;
 
@@ -36,7 +37,7 @@ PLATFORM_THREAD(main_loop, context) {
         } else {
             for (uint32_t i = 0; i < count; ++i) {
                 if (eventq_cqe_get_type(&events[i]) < APP_EVENT_TYPE_START) {
-                    platform_process_event(&events[i]);
+                    platform_process_event(&state->queue, &events[i]);
                 } else {
                     switch ((APP_EVENT_TYPE)eventq_cqe_get_type(&events[i])) {
                     case APP_EVENT_TYPE_SHUTDOWN:
@@ -49,6 +50,15 @@ PLATFORM_THREAD(main_loop, context) {
                     case APP_EVENT_TYPE_START_TIMER:
                         platform_wait_time = eventq_cqe_get_status(&events[i]);
                         printf("Starting %u ms timer\n", platform_wait_time);
+                        break;
+                    case APP_EVENT_TYPE_CREATE_SOCKET:
+                        if (eventq_cqe_get_status(&events[i])) {
+                            if (!platform_socket_create_listener(&state->app_socket, &state->queue))
+                                printf("Failed to create listener socket\n");
+                        } else {
+                            if (!platform_socket_create_client(&state->app_socket, &state->queue))
+                                printf("Failed to create client socket\n");
+                        }
                         break;
                     }
                 }
@@ -65,6 +75,7 @@ void start_main_loop(app_state* state) {
     eventq_sqe_initialize(&state->queue, &state->shutdown_sqe);
     eventq_sqe_initialize(&state->queue, &state->echo_sqe);
     eventq_sqe_initialize(&state->queue, &state->timer_sqe);
+    eventq_sqe_initialize(&state->queue, &state->create_socket_sqe);
     platform_thread_create(&state->thread, main_loop, state);
 }
 
@@ -74,12 +85,16 @@ void stop_main_loop(app_state* state) {
     eventq_sqe_cleanup(&state->queue, &state->shutdown_sqe);
     eventq_sqe_cleanup(&state->queue, &state->echo_sqe);
     eventq_sqe_cleanup(&state->queue, &state->timer_sqe);
+    eventq_sqe_cleanup(&state->queue, &state->create_socket_sqe);
     eventq_cleanup(&state->queue);
 }
 
 int CALL main(int argc, char **argv) {
-    app_state state1 = {0};
+    platform_sockets_init();
+
+    app_state state1 = {0}, state2 = {0};
     start_main_loop(&state1);
+    start_main_loop(&state2);
 
     platform_sleep(1000);
     eventq_enqueue(&state1.queue, &state1.echo_sqe, APP_EVENT_TYPE_ECHO, NULL, 0);
@@ -88,7 +103,13 @@ int CALL main(int argc, char **argv) {
     platform_sleep(1000);
     eventq_enqueue(&state1.queue, &state1.echo_sqe, APP_EVENT_TYPE_ECHO, NULL, 0);
 
+    eventq_enqueue(&state1.queue, &state1.create_socket_sqe, APP_EVENT_TYPE_CREATE_SOCKET, NULL, 1);
+    platform_sleep(100);
+    eventq_enqueue(&state2.queue, &state2.create_socket_sqe, APP_EVENT_TYPE_CREATE_SOCKET, NULL, 0);
+    platform_sleep(1000);
+
     stop_main_loop(&state1);
+    stop_main_loop(&state2);
 
     return 0;
 }
