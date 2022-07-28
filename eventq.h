@@ -91,7 +91,6 @@ uint32_t eventq_cqe_get_status(eventq_cqe* cqe) { return cqe->dwNumberOfBytesTra
 
 typedef int eventq;
 typedef struct eventq_sqe {
-    struct kevent event;
     uint32_t type;
     void* user_data;
     uint32_t status;
@@ -108,11 +107,12 @@ void eventq_cleanup(eventq* queue) {
 bool eventq_sqe_initialize(eventq* queue, eventq_sqe* sqe) { return true; }
 void eventq_sqe_cleanup(eventq* queue, eventq_sqe* sqe) { }
 void eventq_enqueue(eventq* queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
+    struct kevent event = {0};
     sqe->type = type;
     sqe->user_data = user_data;
     sqe->status = status;
-    EV_SET(&sqe->event, *queue, EVFILT_USER, EV_ADD | EV_CLEAR, NOTE_TRIGGER, 0, sqe);
-    if (0 != kevent(*queue, &sqe->event, 1, NULL, 0, NULL)) {
+    EV_SET(&event, sqe, EVFILT_USER, EV_ADD | EV_CLEAR, NOTE_TRIGGER, 0, sqe);
+    if (0 != kevent(*queue, &event, 1, NULL, 0, NULL)) {
         printf("kevent enqueue failed\n");
     }
 }
