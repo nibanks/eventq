@@ -112,15 +112,15 @@ void eventq_enqueue(eventq* queue, eventq_sqe* sqe, uint32_t type, void* user_da
     sqe->user_data = user_data;
     sqe->status = status;
     EV_SET(&event, *queue, EVFILT_USER, EV_ADD | EV_CLEAR, NOTE_TRIGGER, 0, sqe);
-    kevent(*queue, &event, 1, NULL, 0, NULL);
+    if (-1 != kevent(*queue, &event, 1, NULL, 0, NULL)) {
+        printf("kevent enqueue failed\n");
+    }
 }
-#define CXPLAT_NANOSEC_PER_MS       (1000000)
-#define CXPLAT_MS_PER_SECOND        (1000)
 uint32_t eventq_dequeue(eventq* queue, eventq_cqe* events, uint32_t count, uint32_t wait_time) {
     struct timespec timeout = {0, 0};
     if (wait_time != UINT32_MAX) {
-        timeout.tv_sec += (wait_time / CXPLAT_MS_PER_SECOND);
-        timeout.tv_nsec += ((wait_time % CXPLAT_MS_PER_SECOND) * CXPLAT_NANOSEC_PER_MS);
+        timeout.tv_sec = (wait_time / 1000);
+        timeout.tv_nsec = ((wait_time % 1000) * 1000000);
     }
     int result;
     do {
@@ -221,7 +221,8 @@ void eventq_enqueue(eventq* queue, eventq_sqe* sqe, uint32_t type, void* user_da
     io_uring_submit(queue); // TODO - Extract to separate function?
 }
 uint32_t eventq_dequeue(eventq* queue, eventq_cqe* events, uint32_t count, uint32_t wait_time) {
-    int result;
+    int result = io_uring_peek_batch_cqe(queue, events, count);
+    if (result > 0 || wait_time == 0) return result;
     if (wait_time != UINT32_MAX) {
         struct __kernel_timespec timeout;
         timeout.tv_sec = (wait_time / 1000);
