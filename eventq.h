@@ -407,9 +407,14 @@ bool eventq_socket_create(eventq* queue, platform_socket* sock) {
 bool eventq_socket_receive_start(eventq* queue, platform_socket* sock) {
     sock->sqe.type = PLATFORM_EVENT_TYPE_SOCKET_RECEIVE;
     struct io_uring_sqe *io_sqe = io_uring_get_sqe(queue);
+    if (io_sqe == NULL) {
+        printf("io_uring_get_sqe(recv) returned NULL\n");
+        return false;
+    }
     io_uring_prep_recv(io_sqe, sock->fd, sock->buffer, sizeof(sock->buffer), 0);
     io_uring_sqe_set_data(io_sqe, &sock->sqe);
     io_uring_submit(queue); // TODO - Extract to separate function?
+    return true;
 }
 void eventq_socket_receive_complete(eventq* queue, eventq_cqe* cqe) {
     printf("Receive complete, %d bytes\n", (*cqe)->res);
@@ -419,6 +424,10 @@ void eventq_socket_send_start(eventq* queue, platform_socket* sock, uint32_t len
     sock->sqe.type = PLATFORM_EVENT_TYPE_SOCKET_SEND;
     printf("Sending %u bytes\n", length);
     struct io_uring_sqe *io_sqe = io_uring_get_sqe(queue);
+    if (io_sqe == NULL) {
+        printf("io_uring_get_sqe(send) returned NULL\n");
+        return;
+    }
     io_uring_prep_send(io_sqe, sock->fd, sock->buffer, length, 0);
     io_uring_sqe_set_data(io_sqe, &sock->sqe);
     io_uring_submit(queue); // TODO - Extract to separate function?
@@ -530,7 +539,7 @@ bool platform_socket_create_client(platform_socket* sock, eventq* queue) {
         platform_socket_close(sock->fd);
         return false;
     }
-    for (uint32_t i = 0; i < 10; ++i)
+    for (uint32_t i = 0; i < 50; ++i)
         eventq_socket_send_start(queue, sock, 1);
     return true;
 }
