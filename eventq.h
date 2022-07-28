@@ -112,7 +112,7 @@ void eventq_enqueue(eventq* queue, eventq_sqe* sqe, uint32_t type, void* user_da
     sqe->user_data = user_data;
     sqe->status = status;
     EV_SET(&event, *queue, EVFILT_USER, EV_ADD | EV_CLEAR, NOTE_TRIGGER, 0, sqe);
-    if (-1 != kevent(*queue, &event, 1, NULL, 0, NULL)) {
+    if (0 != kevent(*queue, &event, 1, NULL, 0, NULL)) {
         printf("kevent enqueue failed\n");
     }
 }
