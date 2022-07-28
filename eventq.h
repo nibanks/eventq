@@ -88,11 +88,11 @@ bool eventq_initialize(eventq* queue) {
     *queue = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 1);
     return *queue != NULL;
 }
-void eventq_cleanup(eventq queue) {
-    CloseHandle(queue);
+void eventq_cleanup(eventq* queue) {
+    CloseHandle(*queue);
 }
-bool eventq_sqe_initialize(eventq queue, eventq_sqe* sqe) { return true; }
-void eventq_sqe_cleanup(eventq queue, eventq_sqe* sqe) { }
+bool eventq_sqe_initialize(eventq* queue, eventq_sqe* sqe) { return true; }
+void eventq_sqe_cleanup(eventq* queue, eventq_sqe* sqe) { }
 bool eventq_socket_create(eventq queue, platform_socket* sock) {
     sock->fd = WSASocketW(AF_INET, SOCK_DGRAM, IPPROTO_UDP, NULL, 0, WSA_FLAG_OVERLAPPED);
     if (sock->fd == (SOCKET)-1) return false;
@@ -102,7 +102,7 @@ bool eventq_socket_create(eventq queue, platform_socket* sock) {
     }
     return true;
 }
-bool eventq_socket_receive_start(eventq queue, platform_socket* sock) {
+bool eventq_socket_receive_start(eventq* queue, platform_socket* sock) {
     sock->sqe.type = PLATFORM_EVENT_TYPE_SOCKET_RECEIVE;
     sock->recv_addr_len = sizeof(sock->recv_addr);
     sock->buf.buf = sock->buffer;
@@ -122,7 +122,7 @@ bool eventq_socket_receive_start(eventq queue, platform_socket* sock) {
 void eventq_socket_receive_complete(eventq_cqe* cqe) {
     printf("Receive complete, %u bytes\n", cqe->dwNumberOfBytesTransferred);
 }
-bool eventq_socket_send_start(eventq queue, platform_socket* sock) {
+bool eventq_socket_send_start(eventq* queue, platform_socket* sock) {
     sock->sqe.type = PLATFORM_EVENT_TYPE_SOCKET_SEND;
     sock->buf.buf = sock->buffer;
     sock->buf.len = sizeof(sock->buffer) - 10;
@@ -140,17 +140,17 @@ bool eventq_socket_send_start(eventq queue, platform_socket* sock) {
 void eventq_socket_send_complete(eventq_cqe* cqe) {
     printf("Send complete\n");
 }
-void eventq_enqueue(eventq queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
+void eventq_enqueue(eventq* queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
     memset(sqe, 0, sizeof(*sqe));
     sqe->type = type;
-    PostQueuedCompletionStatus(queue, status, (ULONG_PTR)user_data, (OVERLAPPED*)sqe);
+    PostQueuedCompletionStatus(*queue, status, (ULONG_PTR)user_data, (OVERLAPPED*)sqe);
 }
-uint32_t eventq_dequeue(eventq queue, eventq_cqe* events, uint32_t count, uint32_t wait_time) {
+uint32_t eventq_dequeue(eventq* queue, eventq_cqe* events, uint32_t count, uint32_t wait_time) {
     uint32_t out_count;
-    GetQueuedCompletionStatusEx(queue, events, count, &out_count, wait_time, FALSE); // TODO - How to handle errors?
+    GetQueuedCompletionStatusEx(*queue, events, count, &out_count, wait_time, FALSE); // TODO - How to handle errors?
     return out_count;
 }
-void eventq_return(eventq queue, eventq_cqe* cqe) { }
+void eventq_return(eventq* queue, eventq_cqe* cqe) { }
 uint32_t eventq_cqe_get_type(eventq_cqe* cqe) { return ((eventq_sqe*)cqe->lpOverlapped)->type; }
 void* eventq_cqe_get_user_data(eventq_cqe* cqe) { return (void*)cqe->lpCompletionKey; }
 uint32_t eventq_cqe_get_status(eventq_cqe* cqe) { return cqe->dwNumberOfBytesTransferred; }
@@ -181,54 +181,54 @@ bool eventq_initialize(eventq* queue) {
     *queue = kqueue();
     return *queue != -1;
 }
-void eventq_cleanup(eventq queue) {
-    close(queue);
+void eventq_cleanup(eventq* queue) {
+    close(*queue);
 }
-bool eventq_sqe_initialize(eventq queue, eventq_sqe* sqe) { return true; }
-void eventq_sqe_cleanup(eventq queue, eventq_sqe* sqe) { }
-bool eventq_socket_create(eventq queue, platform_socket* sock) {
+bool eventq_sqe_initialize(eventq* queue, eventq_sqe* sqe) { return true; }
+void eventq_sqe_cleanup(eventq* queue, eventq_sqe* sqe) { }
+bool eventq_socket_create(eventq* queue, platform_socket* sock) {
     return (sock->fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) != (SOCKET)-1;
 }
-bool eventq_socket_receive_start(eventq queue, platform_socket* sock) {
+bool eventq_socket_receive_start(eventq* queue, platform_socket* sock) {
     sock->sqe.type = PLATFORM_EVENT_TYPE_SOCKET_RECEIVE;
     struct kevent event = {0};
     EV_SET(&event, sock->fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, (void*)sock);
-    return 0 <= kevent(queue, &event, 1, NULL, 0, NULL);
+    return 0 <= kevent(*queue, &event, 1, NULL, 0, NULL);
 }
 void eventq_socket_receive_complete(eventq_cqe* cqe) {
     platform_socket* sock = (platform_socket*)cqe->udata;
     int result = recvfrom(sock->fd, sock->buffer, sizeof(sock->buffer), 0, &sock->recv_addr, &sock->recv_addr_len);
     printf("Receive complete, %d bytes\n", result);
 }
-bool eventq_socket_send_start(eventq queue, platform_socket* sock) {
+bool eventq_socket_send_start(eventq* queue, platform_socket* sock) {
     printf("Sending %u bytes\n", (uint32_t)sizeof(sock->buffer)-10);
     return send(sock->fd, sock->buffer, sizeof(sock->buffer)-10, 0) != -1;
 }
 void eventq_socket_send_complete(eventq_cqe* cqe) {
 }
-void eventq_enqueue(eventq queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
+void eventq_enqueue(eventq* queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
     struct kevent event = {0};
     sqe->type = type;
     sqe->user_data = user_data;
     sqe->status = status;
-    EV_SET(&event, queue, EVFILT_USER, EV_ADD | EV_CLEAR, NOTE_TRIGGER, 0, sqe);
-    kevent(queue, &event, 1, NULL, 0, NULL);
+    EV_SET(&event, (uintptr_t)sqe, EVFILT_USER, EV_ADD | EV_CLEAR, NOTE_TRIGGER, 0, sqe);
+    if (0 != kevent(*queue, &event, 1, NULL, 0, NULL)) {
+        printf("kevent enqueue failed\n");
+    }
 }
-#define CXPLAT_NANOSEC_PER_MS       (1000000)
-#define CXPLAT_MS_PER_SECOND        (1000)
-uint32_t eventq_dequeue(eventq queue, eventq_cqe* events, uint32_t count, uint32_t wait_time) {
+uint32_t eventq_dequeue(eventq* queue, eventq_cqe* events, uint32_t count, uint32_t wait_time) {
     struct timespec timeout = {0, 0};
     if (wait_time != UINT32_MAX) {
-        timeout.tv_sec += (wait_time / CXPLAT_MS_PER_SECOND);
-        timeout.tv_nsec += ((wait_time % CXPLAT_MS_PER_SECOND) * CXPLAT_NANOSEC_PER_MS);
+        timeout.tv_sec = (wait_time / 1000);
+        timeout.tv_nsec = ((wait_time % 1000) * 1000000);
     }
     int result;
     do {
-        result = kevent(queue, NULL, 0, events, count, wait_time == UINT32_MAX ? NULL : &timeout);
+        result = kevent(*queue, NULL, 0, events, count, wait_time == UINT32_MAX ? NULL : &timeout);
     } while ((result == -1L) && (errno == EINTR));
     return (uint32_t)result;
 }
-void eventq_return(eventq queue, eventq_cqe* cqe) { }
+void eventq_return(eventq* queue, eventq_cqe* cqe) { }
 uint32_t eventq_cqe_get_type(eventq_cqe* cqe) { return ((eventq_sqe*)cqe->udata)->type; }
 void* eventq_cqe_get_user_data(eventq_cqe* cqe) { return ((eventq_sqe*)cqe->udata)->user_data; }
 uint32_t eventq_cqe_get_status(eventq_cqe* cqe) { return ((eventq_sqe*)cqe->udata)->status; }
@@ -259,57 +259,57 @@ bool eventq_initialize(eventq* queue) {
     *queue = epoll_create1(EPOLL_CLOEXEC);
     return *queue != -1;
 }
-void eventq_cleanup(eventq queue) {
-    close(queue);
+void eventq_cleanup(eventq* queue) {
+    close(*queue);
 }
-bool eventq_sqe_initialize(eventq queue, eventq_sqe* sqe) {
+bool eventq_sqe_initialize(eventq* queue, eventq_sqe* sqe) {
     sqe->fd = eventfd(0, EFD_CLOEXEC);
     if (sqe->fd == -1) return false;
     struct epoll_event event = { .events = EPOLLIN | EPOLLET, .data = { .ptr = sqe } };
-    if (epoll_ctl(queue, EPOLL_CTL_ADD, sqe->fd, &event) != 0) {
+    if (epoll_ctl(*queue, EPOLL_CTL_ADD, sqe->fd, &event) != 0) {
         close(sqe->fd);
         return false;
     }
     return true;
 }
-void eventq_sqe_cleanup(eventq queue, eventq_sqe* sqe) {
-    epoll_ctl(queue, EPOLL_CTL_DEL, sqe->fd, NULL);
+void eventq_sqe_cleanup(eventq* queue, eventq_sqe* sqe) {
+    epoll_ctl(*queue, EPOLL_CTL_DEL, sqe->fd, NULL);
     close(sqe->fd);
 }
-bool eventq_socket_create(eventq queue, platform_socket* sock) {
+bool eventq_socket_create(eventq* queue, platform_socket* sock) {
     return (sock->fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) != (SOCKET)-1;
 }
-bool eventq_socket_receive_start(eventq queue, platform_socket* sock) {
+bool eventq_socket_receive_start(eventq* queue, platform_socket* sock) {
     sock->sqe.type = PLATFORM_EVENT_TYPE_SOCKET_RECEIVE;
     struct epoll_event event = { .events = EPOLLIN | EPOLLET, .data = { .ptr = sock } };
-    return 0 == epoll_ctl(queue, EPOLL_CTL_ADD, sock->fd, &event);
+    return 0 == epoll_ctl(*queue, EPOLL_CTL_ADD, sock->fd, &event);
 }
 void eventq_socket_receive_complete(eventq_cqe* cqe) {
     platform_socket* sock = (platform_socket*)cqe->data.ptr;
     int result = recvfrom(sock->fd, sock->buffer, sizeof(sock->buffer), 0, &sock->recv_addr, &sock->recv_addr_len);
     printf("Receive complete, %d bytes\n", result);
 }
-bool eventq_socket_send_start(eventq queue, platform_socket* sock) {
+bool eventq_socket_send_start(eventq* queue, platform_socket* sock) {
     printf("Sending %u bytes\n", (uint32_t)sizeof(sock->buffer)-10);
     return send(sock->fd, sock->buffer, sizeof(sock->buffer)-10, 0) != -1;
 }
 void eventq_socket_send_complete(eventq_cqe* cqe) {
 }
-void eventq_enqueue(eventq queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
+void eventq_enqueue(eventq* queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
     sqe->type = type;
     sqe->user_data = user_data;
     sqe->status = status;
     eventfd_write(sqe->fd, 1);
 }
-uint32_t eventq_dequeue(eventq queue, eventq_cqe* events, uint32_t count, uint32_t wait_time) {
+uint32_t eventq_dequeue(eventq* queue, eventq_cqe* events, uint32_t count, uint32_t wait_time) {
     const int timeout = wait_time == UINT32_MAX ? -1 : (int)wait_time;
     int result;
     do {
-        result = epoll_wait(queue, events, count, timeout);
+        result = epoll_wait(*queue, events, count, timeout);
     } while ((result == -1L) && (errno == EINTR));
     return (uint32_t)result;
 }
-void eventq_return(eventq queue, eventq_cqe* cqe) { }
+void eventq_return(eventq* queue, eventq_cqe* cqe) { }
 uint32_t eventq_cqe_get_type(eventq_cqe* cqe) { return ((eventq_sqe*)cqe->data.ptr)->type; }
 void* eventq_cqe_get_user_data(eventq_cqe* cqe) { return ((eventq_sqe*)cqe->data.ptr)->user_data; }
 uint32_t eventq_cqe_get_status(eventq_cqe* cqe) { return ((eventq_sqe*)cqe->data.ptr)->status; }
@@ -335,58 +335,65 @@ typedef struct platform_socket {
 } platform_socket;
 
 bool eventq_initialize(eventq* queue) {
-    io_uring_queue_init(256, queue, 0); // TODO - Can this fail?
-    return true;
+    return 0 == io_uring_queue_init(256, queue, 0);
 }
-void eventq_cleanup(eventq queue) {
-    // TODO - How to cleanup?
+void eventq_cleanup(eventq* queue) {
+    io_uring_queue_exit(queue);
 }
-bool eventq_sqe_initialize(eventq queue, eventq_sqe* sqe) { }
-void eventq_sqe_cleanup(eventq queue, eventq_sqe* sqe) { }
-bool eventq_socket_create(eventq queue, platform_socket* sock) {
+bool eventq_sqe_initialize(eventq* queue, eventq_sqe* sqe) { }
+void eventq_sqe_cleanup(eventq* queue, eventq_sqe* sqe) { }
+bool eventq_socket_create(eventq* queue, platform_socket* sock) {
     return (sock->fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) != (SOCKET)-1;
 }
-bool eventq_socket_receive_start(eventq queue, platform_socket* sock) {
+bool eventq_socket_receive_start(eventq* queue, platform_socket* sock) {
     sock->sqe.type = PLATFORM_EVENT_TYPE_SOCKET_RECEIVE;
-    struct io_uring_sqe *io_sqe = io_uring_get_sqe(&queue);
+    struct io_uring_sqe *io_sqe = io_uring_get_sqe(queue);
     io_uring_prep_recv(io_sqe, sock->fd, sock->buffer, sizeof(sock->buffer), 0);
     io_uring_sqe_set_data(io_sqe, &sock->sqe);
-    io_uring_submit(&queue); // TODO - Extract to separate function?
+    io_uring_submit(queue); // TODO - Extract to separate function?
 }
 void eventq_socket_receive_complete(eventq_cqe* cqe) {
     //platform_socket* sock = (platform_socket*)cqe->data.ptr;
     printf("Receive complete\n"); // TODO - Grab receive length
 }
-bool eventq_socket_send_start(eventq queue, platform_socket* sock) {
+bool eventq_socket_send_start(eventq* queue, platform_socket* sock) {
     sock->sqe.type = PLATFORM_EVENT_TYPE_SOCKET_SEND;
     printf("Sending %u bytes\n", (uint32_t)sizeof(sock->buffer)-10);
-    struct io_uring_sqe *io_sqe = io_uring_get_sqe(&queue);
+    struct io_uring_sqe *io_sqe = io_uring_get_sqe(queue);
     io_uring_prep_send(io_sqe, sock->fd, sock->buffer, sizeof(sock->buffer)-10, 0);
     io_uring_sqe_set_data(io_sqe, &sock->sqe);
-    io_uring_submit(&queue); // TODO - Extract to separate function?
+    io_uring_submit(queue); // TODO - Extract to separate function?
 }
 void eventq_socket_send_complete(eventq_cqe* cqe) {
 }
-void eventq_enqueue(eventq queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
+void eventq_enqueue(eventq* queue, eventq_sqe* sqe, uint32_t type, void* user_data, uint32_t status) {
     sqe->type = type;
     sqe->user_data = user_data;
     sqe->status = status;
-    struct io_uring_sqe *io_sqe = io_uring_get_sqe(&queue);
+    struct io_uring_sqe *io_sqe = io_uring_get_sqe(queue);
+    if (io_sqe == NULL) {
+        printf("io_uring_get_sqe returned NULL\n");
+        return;
+    }
     io_uring_prep_nop(io_sqe);
     io_uring_sqe_set_data(io_sqe, sqe);
-    io_uring_submit(&queue); // TODO - Extract to separate function?
+    io_uring_submit(queue); // TODO - Extract to separate function?
 }
-uint32_t eventq_dequeue(eventq queue, eventq_cqe* events, uint32_t count, uint32_t wait_time) {
+uint32_t eventq_dequeue(eventq* queue, eventq_cqe* events, uint32_t count, uint32_t wait_time) {
+    int result = io_uring_peek_batch_cqe(queue, events, count);
+    if (result > 0 || wait_time == 0) return result;
     if (wait_time != UINT32_MAX) {
         struct __kernel_timespec timeout;
-        timeout.tv_sec += (wait_time / 1000);
-        timeout.tv_nsec += ((wait_time % 1000) * 1000000);
-        return io_uring_wait_cqes(&queue, events, count, &timeout, 0);
+        timeout.tv_sec = (wait_time / 1000);
+        timeout.tv_nsec = ((wait_time % 1000) * 1000000);
+        result = io_uring_wait_cqe_timeout(queue, events, &timeout);
+    } else {
+        result = io_uring_wait_cqe(queue, events);
     }
-    return io_uring_wait_cqes(&queue, events, count, 0, 0);
+    return result == 0 ? 1 : 0;
 }
-void eventq_return(eventq queue, eventq_cqe* cqe) {
-    io_uring_cqe_seen(&queue, *cqe);
+void eventq_return(eventq* queue, eventq_cqe* cqe) {
+    io_uring_cqe_seen(queue, *cqe);
 }
 uint32_t eventq_cqe_get_type(eventq_cqe* cqe) { return ((eventq_sqe*)io_uring_cqe_get_data(*cqe))->type; }
 void* eventq_cqe_get_user_data(eventq_cqe* cqe) { return ((eventq_sqe*)io_uring_cqe_get_data(*cqe))->user_data; }
@@ -429,7 +436,7 @@ void platform_sleep(uint32_t milliseconds) {
 #endif
 }
 
-bool platform_socket_create_listener(platform_socket* sock, eventq queue) {
+bool platform_socket_create_listener(platform_socket* sock, eventq* queue) {
     if (!eventq_socket_create(queue, sock)) return false;
     struct sockaddr_in addr;
     addr.sin_family = AF_INET;
@@ -447,7 +454,7 @@ bool platform_socket_create_listener(platform_socket* sock, eventq queue) {
     return true;
 }
 
-bool platform_socket_create_client(platform_socket* sock, eventq queue) {
+bool platform_socket_create_client(platform_socket* sock, eventq* queue) {
     if (!eventq_socket_create(queue, sock)) return false;
     struct sockaddr_in addr;
     addr.sin_family = AF_INET;
