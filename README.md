@@ -2,6 +2,8 @@
 
 Explores the different platform execution models for IO.
 
+[![Build](https://github.com/nibanks/eventq/actions/workflows/build.yml/badge.svg)](https://github.com/nibanks/eventq/actions/workflows/build.yml)
+
 ## IO Completion Ports
 
 [IO Completion Ports](https://docs.microsoft.com/en-us/windows/win32/fileio/i-o-completion-ports), or IOCP, is the standard mechanism for asynchronous IO on Windows. Generally, it is used to return the completion of a previous asynchronous call made by the application.
@@ -51,6 +53,7 @@ cmake --build .
 To try it out, run the following (**on Ubuntu**):
 
 ```Bash
+sudo apt-get install liburing-dev
 git clone --recursive https://github.com/nibanks/eventq.git
 cd eventq && mkdir build && cd build
 cmake -G 'Unix Makefiles' -A x64 -DUSE_IO_URING=on ..
