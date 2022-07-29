@@ -62,8 +62,8 @@ PLATFORM_THREAD(main_loop, context) {
                         break;
                     }
                 }
-                eventq_return(&state->queue, &events[i]);
             }
+            eventq_return(&state->queue, count);
         }
     }
     printf("Main loop end\n");
