@@ -31,7 +31,7 @@ PLATFORM_THREAD(main_loop, context) {
     eventq_cqe events[8];
     while (running) {
         uint32_t wait_time = platform_get_wait_time();
-        uint32_t count = wait_time == 0 ? 0 : eventq_dequeue(&state->queue, events, 8, wait_time);
+        uint32_t count = eventq_dequeue(&state->queue, events, 8, wait_time);
         if (count == 0) {
             platform_process_timeout();
         } else {
