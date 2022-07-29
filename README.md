@@ -4,6 +4,39 @@ Explores the different platform execution models for IO.
 
 [![Build](https://github.com/nibanks/eventq/actions/workflows/build.yml/badge.svg)](https://github.com/nibanks/eventq/actions/workflows/build.yml)
 
+The "main loop" of the application layer looks like this:
+
+```c
+PLATFORM_THREAD(main_loop, context) {
+    printf("Main loop start\n");
+    app_state* state = (app_state*)context;
+    bool running = true;
+    eventq_cqe events[8];
+    while (running) {
+        uint32_t wait_time = platform_get_wait_time();
+        uint32_t count = wait_time == 0 ? 0 : eventq_dequeue(&state->queue, events, 8, wait_time);
+        if (count == 0) {
+            platform_process_timeout();
+        } else {
+            for (uint32_t i = 0; i < count; ++i) {
+                if (eventq_cqe_get_type(&events[i]) < APP_EVENT_TYPE_START) {
+                    platform_process_event(&state->queue, &events[i]);
+                } else {
+                    switch ((APP_EVENT_TYPE)eventq_cqe_get_type(&events[i])) {
+                    ...
+                    }
+                }
+            }
+            eventq_return(&state->queue, count);
+        }
+    }
+    printf("Main loop end\n");
+    PLATFORM_THREAD_RETURN(0);
+}
+```
+
+Feel free to look at [eventq.h](./eventq.h) for the abstraction layers and [eventq.c](./eventq.c) for the application layer usage.
+
 ## IO Completion Ports
 
 [IO Completion Ports](https://docs.microsoft.com/en-us/windows/win32/fileio/i-o-completion-ports), or IOCP, is the standard mechanism for asynchronous IO on Windows. Generally, it is used to return the completion of a previous asynchronous call made by the application.
