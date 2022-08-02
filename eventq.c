@@ -30,41 +30,36 @@ PLATFORM_THREAD(main_loop, context) {
     bool running = true;
     eventq_cqe events[8];
     while (running) {
-        uint32_t wait_time = platform_get_wait_time();
+        uint32_t wait_time = platform_process_timers();
         uint32_t count = eventq_dequeue(&state->queue, events, 8, wait_time);
-        if (count == 0) {
-            platform_process_timeout();
-        } else {
-            for (uint32_t i = 0; i < count; ++i) {
-                if (eventq_cqe_get_type(&events[i]) < APP_EVENT_TYPE_START) {
-                    platform_process_event(&state->queue, &events[i]);
-                } else {
-                    switch ((APP_EVENT_TYPE)eventq_cqe_get_type(&events[i])) {
-                    case APP_EVENT_TYPE_SHUTDOWN:
-                        printf("Shutdown event received\n");
-                        running = false;
-                        break;
-                    case APP_EVENT_TYPE_ECHO:
-                        printf("Echo event received\n");
-                        break;
-                    case APP_EVENT_TYPE_START_TIMER:
-                        platform_wait_time = eventq_cqe_get_status(&events[i]);
-                        printf("Starting %u ms timer\n", platform_wait_time);
-                        break;
-                    case APP_EVENT_TYPE_CREATE_SOCKET:
-                        if (eventq_cqe_get_status(&events[i])) {
-                            if (!platform_socket_create_listener(&state->app_socket, &state->queue))
-                                printf("Failed to create listener socket\n");
-                        } else {
-                            if (!platform_socket_create_client(&state->app_socket, &state->queue))
-                                printf("Failed to create client socket\n");
-                        }
-                        break;
+        for (uint32_t i = 0; i < count; ++i) {
+            if (eventq_cqe_get_type(&events[i]) < APP_EVENT_TYPE_START) {
+                platform_process_event(&state->queue, &events[i]);
+            } else {
+                switch ((APP_EVENT_TYPE)eventq_cqe_get_type(&events[i])) {
+                case APP_EVENT_TYPE_SHUTDOWN:
+                    printf("Shutdown event received\n");
+                    running = false;
+                    break;
+                case APP_EVENT_TYPE_ECHO:
+                    printf("Echo event received\n");
+                    break;
+                case APP_EVENT_TYPE_START_TIMER:
+                    platform_set_timer_ms(eventq_cqe_get_status(&events[i]));
+                    break;
+                case APP_EVENT_TYPE_CREATE_SOCKET:
+                    if (eventq_cqe_get_status(&events[i])) {
+                        if (!platform_socket_create_listener(&state->app_socket, &state->queue))
+                            printf("Failed to create listener socket\n");
+                    } else {
+                        if (!platform_socket_create_client(&state->app_socket, &state->queue))
+                            printf("Failed to create client socket\n");
                     }
+                    break;
                 }
             }
-            eventq_return(&state->queue, count);
         }
+        eventq_return(&state->queue, count);
     }
     printf("Main loop end\n");
     PLATFORM_THREAD_RETURN(0);
@@ -90,7 +85,7 @@ void stop_main_loop(app_state* state) {
 }
 
 int CALL main(int argc, char **argv) {
-    platform_sockets_init();
+    platform_init();
 
     app_state state1 = {0}, state2 = {0};
     start_main_loop(&state1);

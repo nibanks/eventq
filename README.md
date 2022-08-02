@@ -13,22 +13,18 @@ PLATFORM_THREAD(main_loop, context) {
     bool running = true;
     eventq_cqe events[8];
     while (running) {
-        uint32_t wait_time = platform_get_wait_time();
+        uint32_t wait_time = platform_process_timers();
         uint32_t count = eventq_dequeue(&state->queue, events, 8, wait_time);
-        if (count == 0) {
-            platform_process_timeout();
-        } else {
-            for (uint32_t i = 0; i < count; ++i) {
-                if (eventq_cqe_get_type(&events[i]) < APP_EVENT_TYPE_START) {
-                    platform_process_event(&state->queue, &events[i]);
-                } else {
-                    switch ((APP_EVENT_TYPE)eventq_cqe_get_type(&events[i])) {
-                    ...
-                    }
+        for (uint32_t i = 0; i < count; ++i) {
+            if (eventq_cqe_get_type(&events[i]) < APP_EVENT_TYPE_START) {
+                platform_process_event(&state->queue, &events[i]);
+            } else {
+                switch ((APP_EVENT_TYPE)eventq_cqe_get_type(&events[i])) {
+                ...
                 }
             }
-            eventq_return(&state->queue, count);
         }
+        eventq_return(&state->queue, count);
     }
     printf("Main loop end\n");
     PLATFORM_THREAD_RETURN(0);
