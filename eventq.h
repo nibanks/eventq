@@ -35,6 +35,17 @@ void platform_thread_destroy(platform_thread thread) {
     WaitForSingleObject(thread, INFINITE);
     CloseHandle(thread);
 }
+void platform_sleep(uint32_t milliseconds) { Sleep(milliseconds); }
+uint64_t platform_perf_freq;
+uint64_t platform_now_us(void) {
+    uint64_t Count;
+    (void)QueryPerformanceCounter((LARGE_INTEGER*)&Count);
+    uint64_t High = (Count >> 32) * 1000000;
+    uint64_t Low = (Count & 0xFFFFFFFF) * 1000000;
+    return
+        ((High / platform_perf_freq) << 32) +
+        ((Low + ((High % platform_perf_freq) << 32)) / platform_perf_freq);
+}
 #if EC_PSN
 #include <stdlib.h>
 typedef DWORD (WSAAPI *PPROCESS_SOCKET_NOTIFICATIONS_ROUTINE)(
@@ -49,7 +60,9 @@ typedef DWORD (WSAAPI *PPROCESS_SOCKET_NOTIFICATIONS_ROUTINE)(
 HANDLE hws2_32 = NULL;
 PPROCESS_SOCKET_NOTIFICATIONS_ROUTINE fn_ProcessSocketNotifications = NULL;
 #endif
-void platform_sockets_init(void) {
+int platform_socket_close(SOCKET s) { return closesocket(s); }
+void platform_init(void) {
+    (void)QueryPerformanceFrequency((LARGE_INTEGER*)&platform_perf_freq);
 #if EC_PSN
     hws2_32 = LoadLibrary("Ws2_32.dll");
     fn_ProcessSocketNotifications = (PPROCESS_SOCKET_NOTIFICATIONS_ROUTINE)GetProcAddress(hws2_32, "ProcessSocketNotifications");
@@ -60,7 +73,6 @@ void platform_sockets_init(void) {
 #endif
     WSADATA WsaData; WSAStartup(MAKEWORD(2, 2), &WsaData);
 }
-int platform_socket_close(SOCKET s) { return closesocket(s); }
 #else // !_WIN32
 #include <pthread.h>
 #include <unistd.h>
@@ -81,9 +93,15 @@ void platform_thread_destroy(platform_thread thread) {
     pthread_equal(thread, pthread_self());
     pthread_join(thread, NULL);
 }
+void platform_sleep(uint32_t milliseconds) { usleep(milliseconds * 1000); }
+uint64_t platform_now_us(void) {
+    struct timespec time = {0};
+    (void)clock_gettime(CLOCK_MONOTONIC, &time);
+    return (time.tv_sec * 1000000) + (time.tv_nsec / 1000);
+}
 typedef int SOCKET;
-void platform_sockets_init(void) { }
 int platform_socket_close(SOCKET s) { return close(s); }
+void platform_init(void) { }
 #endif // !_WIN32
 
 //
@@ -599,9 +617,25 @@ uint32_t eventq_cqe_get_status(eventq_cqe* cqe) { return ((eventq_sqe*)io_uring_
 
 #define APP_EVENT_TYPE_START 0x8000
 
-uint32_t platform_wait_time = UINT32_MAX;
-uint32_t platform_get_wait_time(void) { return platform_wait_time; }
-void platform_process_timeout(void) { printf("Timeout\n"); platform_wait_time = UINT32_MAX; }
+uint64_t platform_now_us_cache = 0;
+uint64_t platform_next_wait_time = UINT64_MAX;
+// Returns the next wait time in milliseconds.
+uint32_t platform_process_timers(void) {
+    platform_now_us_cache = platform_now_us();
+    if (platform_next_wait_time == UINT64_MAX) return UINT32_MAX;
+    if (platform_now_us_cache >= platform_next_wait_time) {
+        printf("Timeout\n");
+        platform_next_wait_time = UINT64_MAX;
+        return 0;
+    }
+    uint64_t wait_time = (platform_next_wait_time - platform_now_us_cache) / 1000;
+    return wait_time > UINT32_MAX ? UINT32_MAX : (uint32_t)wait_time;
+}
+void platform_set_timer_ms(uint32_t wait_time_ms) {
+    printf("Starting %u ms timer\n", wait_time_ms);
+    platform_now_us_cache = platform_now_us();
+    platform_next_wait_time = platform_now_us_cache + (wait_time_ms * 1000);
+}
 void platform_process_event(eventq* queue, eventq_cqe* cqe) {
     switch (eventq_cqe_get_type(cqe)) {
     case PLATFORM_EVENT_TYPE_SOCKET_RECEIVE:
@@ -614,13 +648,6 @@ void platform_process_event(eventq* queue, eventq_cqe* cqe) {
         printf("Unexpected Event %u\n", eventq_cqe_get_type(cqe));
         break;
     }
-}
-void platform_sleep(uint32_t milliseconds) {
-#ifdef _WIN32
-    Sleep(milliseconds);
-#else
-    usleep(milliseconds * 1000);
-#endif
 }
 
 bool platform_socket_create_listener(platform_socket* sock, eventq* queue) {
