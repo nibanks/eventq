@@ -305,6 +305,7 @@ uint32_t eventq_cqe_get_status(eventq_cqe* cqe) { return cqe->dwNumberOfBytesTra
 typedef int eventq;
 typedef struct eventq_sqe {
     uint32_t type;
+    long ident;
     void* user_data;
     uint32_t status;
 } eventq_sqe;
@@ -326,7 +327,15 @@ bool eventq_initialize(eventq* queue) {
 void eventq_cleanup(eventq* queue) {
     close(*queue);
 }
-bool eventq_sqe_initialize(eventq* queue, eventq_sqe* sqe) { return true; }
+extern long eventq_sqe_next_value;
+bool eventq_sqe_initialize(eventq* queue, eventq_sqe* sqe) {
+#if _WIN32
+    sqe->ident = InterlockedIncrement(&eventq_sqe_next_value);
+#else
+    sqe->ident = __sync_add_and_fetch(&eventq_sqe_next_value, 1);
+#endif
+    return true;
+}
 void eventq_sqe_cleanup(eventq* queue, eventq_sqe* sqe) { }
 bool eventq_socket_create(eventq* queue, platform_socket* sock) {
     sock->recv_sqe.type = PLATFORM_EVENT_TYPE_SOCKET_RECEIVE;
@@ -384,7 +393,7 @@ void eventq_enqueue(eventq* queue, eventq_sqe* sqe, uint32_t type, void* user_da
     sqe->type = type;
     sqe->user_data = user_data;
     sqe->status = status;
-    EV_SET(&event, (uintptr_t)sqe, EVFILT_USER, EV_ADD | EV_CLEAR, NOTE_TRIGGER, 0, sqe);
+    EV_SET(&event, sqe->ident, EVFILT_USER, EV_ADD | EV_ONESHOT, NOTE_TRIGGER, 0, sqe);
     if (0 != kevent(*queue, &event, 1, NULL, 0, NULL)) {
         printf("kevent enqueue failed\n");
     }

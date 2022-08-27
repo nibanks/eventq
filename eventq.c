@@ -7,6 +7,10 @@
 
 #include "eventq.h"
 
+#if EC_KQUEUE
+long eventq_sqe_next_value = 0;
+#endif
+
 typedef struct app_state {
     eventq queue;
     eventq_sqe shutdown_sqe;
